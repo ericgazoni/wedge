@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { computed, ref } from "vue";
+import { computed, ref, toRaw } from "vue";
 import type { RepoModel, DoorstopItem, DoorstopDocument } from "../types/doorstop";
 import {
   createDoorstopItem,
@@ -7,6 +7,19 @@ import {
   scanDoorstopRepository,
   writeDoorstopItem,
 } from "../services/doorstop";
+
+function safeCloneData<T>(value: T): T {
+  const raw = toRaw(value);
+  try {
+    return structuredClone(raw);
+  } catch {
+    try {
+      return JSON.parse(JSON.stringify(raw)) as T;
+    } catch {
+      return {} as T;
+    }
+  }
+}
 
 export const useRepoStore = defineStore("repo", () => {
   const repo = ref<RepoModel | null>(null);
@@ -97,7 +110,7 @@ export const useRepoStore = defineStore("repo", () => {
     if (!hit) return false;
 
     await writeDoorstopItem(hit.item.filePath, data);
-    hit.item.data = structuredClone(data);
+    hit.item.data = safeCloneData(data);
     return true;
   }
 
@@ -118,7 +131,7 @@ export const useRepoStore = defineStore("repo", () => {
     const hit = findItemWithDocument(uid);
     if (!hit) return null;
 
-    const cloneData = structuredClone(hit.item.data);
+    const cloneData = safeCloneData(hit.item.data);
     return createItem(hit.document.config.settings.prefix, cloneData);
   }
 

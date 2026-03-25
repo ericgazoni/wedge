@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref, toRaw, watch } from "vue";
 import { useMagicKeys } from "@vueuse/core";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { useAppStore } from "./stores/app";
@@ -188,10 +188,21 @@ function resetEditorMessage() {
     editorMessage.value = "";
 }
 
-function syncDraftFromSelection() {
-    editorDraft.value = selectedItem.value
-        ? structuredClone(selectedItem.value.data)
-        : {};
+function safeCloneData<T>(value: T): T {
+    const raw = toRaw(value);
+    try {
+        return structuredClone(raw);
+    } catch {
+        try {
+            return JSON.parse(JSON.stringify(raw)) as T;
+        } catch {
+            return {} as T;
+        }
+    }
+}
+
+function syncDraftFromSelection(item = selectedItem.value) {
+    editorDraft.value = item ? safeCloneData(item.data) : {};
     resetEditorMessage();
 }
 
@@ -217,6 +228,7 @@ async function openRepository() {
         const firstUid = repo.allItems[0]?.uid;
         app.selectedUid = firstUid ?? "";
         flatTreeCursor.value = 0;
+        syncDraftFromSelection();
     } finally {
         openingRepo = false;
     }
@@ -254,6 +266,7 @@ async function saveCurrentItem() {
         editorMessage.value = "Saved.";
         syncDraftFromSelection();
     } catch (error) {
+      console.error(error);
         editorMessage.value =
             error instanceof Error ? error.message : "Failed to save item.";
     } finally {
@@ -333,9 +346,9 @@ async function deleteCurrentItem() {
 }
 
 watch(
-    () => selectedItem.value?.uid,
-    () => {
-        syncDraftFromSelection();
+    () => selectedItem.value,
+    (item) => {
+        syncDraftFromSelection(item ?? null);
     },
     { immediate: true },
 );
