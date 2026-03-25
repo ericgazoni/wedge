@@ -4,12 +4,15 @@ import { useMagicKeys } from "@vueuse/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useAppStore } from "./stores/app";
 import { useRepoStore } from "./stores/repo";
+import { getLastDoorstopScanDebug } from "./services/doorstop";
 
 const app = useAppStore();
 const repo = useRepoStore();
 
 const keys = useMagicKeys();
 const flatTreeCursor = ref(0);
+
+const scanDebug = ref(getLastDoorstopScanDebug());
 
 const flatTree = computed(() => {
     const q = app.treeFilter.trim().toLowerCase();
@@ -24,6 +27,7 @@ const flatTree = computed(() => {
             key: d.prefix,
             label: `${d.prefix} (${d.count})`,
         });
+
         const expanded = app.expandedDocs[d.prefix] ?? true;
         if (!expanded) continue;
 
@@ -40,6 +44,7 @@ const flatTree = computed(() => {
             }
         }
     }
+
     return rows;
 });
 
@@ -51,6 +56,11 @@ const viewLabel = computed(() => {
     return "Git";
 });
 
+const debugSummary = computed(() => {
+    const d = scanDebug.value;
+    return `visited=${d.visitedDirs} candidates=${d.candidateDirs.length} docs=${d.documentDirs.length} parseErrors=${d.parseErrors.length}`;
+});
+
 function setView(v: "editor" | "batch" | "git") {
     app.currentView = v;
 }
@@ -59,17 +69,24 @@ let openingRepo = false;
 async function openRepository() {
     if (openingRepo) return;
     openingRepo = true;
+
     try {
         const path = await open({
             directory: true,
             multiple: false,
             title: "Open Doorstop repository",
         });
+
         if (!path || Array.isArray(path)) return;
+
         app.repoPath = path;
         await repo.load(path);
+
+        scanDebug.value = getLastDoorstopScanDebug();
+
         const firstUid = repo.allItems[0]?.uid;
-        if (firstUid) app.selectedUid = firstUid;
+        app.selectedUid = firstUid ?? "";
+        flatTreeCursor.value = 0;
     } finally {
         openingRepo = false;
     }
@@ -86,64 +103,91 @@ function moveCursor(delta: number) {
 function activateCursorRow() {
     const row = flatTree.value[flatTreeCursor.value];
     if (!row) return;
+
     if (row.kind === "doc") {
         app.toggleDoc(row.key);
-    } else {
-        app.selectedUid = row.uid;
-        app.currentView = "editor";
+        return;
     }
+
+    app.selectedUid = row.uid;
+    app.currentView = "editor";
 }
 
 watch(
-    () => keys["Ctrl+O"]?.value,
-    async (pressed) => {
-        if (pressed) await openRepository();
+    () => flatTree.value.length,
+    (len) => {
+        if (!len) {
+            flatTreeCursor.value = 0;
+            return;
+        }
+        if (flatTreeCursor.value >= len) {
+            flatTreeCursor.value = len - 1;
+        }
     },
 );
+
+watch(
+    () => keys["Ctrl+O"]?.value,
+    async (pressed, prev) => {
+        if (pressed && !prev) {
+            await openRepository();
+        }
+    },
+);
+
 watch(
     () => keys["Ctrl+G"]?.value,
-    (pressed) => {
-        if (pressed)
+    (pressed, prev) => {
+        if (pressed && !prev) {
             app.currentView = app.currentView === "git" ? "editor" : "git";
+        }
     },
 );
+
 watch(
     () => keys["Ctrl+Shift+N"]?.value,
-    (pressed) => {
-        if (pressed) app.currentView = "batch";
+    (pressed, prev) => {
+        if (pressed && !prev) {
+            app.currentView = "batch";
+        }
     },
 );
+
 watch(
     () => keys["ArrowDown"]?.value,
-    (pressed) => {
-        if (pressed) moveCursor(1);
+    (pressed, prev) => {
+        if (pressed && !prev) moveCursor(1);
     },
 );
+
 watch(
     () => keys["ArrowUp"]?.value,
-    (pressed) => {
-        if (pressed) moveCursor(-1);
+    (pressed, prev) => {
+        if (pressed && !prev) moveCursor(-1);
     },
 );
+
 watch(
     () => keys["Enter"]?.value,
-    (pressed) => {
-        if (pressed) activateCursorRow();
+    (pressed, prev) => {
+        if (pressed && !prev) activateCursorRow();
     },
 );
+
 watch(
     () => keys["Escape"]?.value,
-    (pressed) => {
-        if (!pressed) return;
+    (pressed, prev) => {
+        if (!(pressed && !prev)) return;
         app.commandPaletteOpen = false;
         app.linkFinderOpen = false;
         if (app.currentView === "batch") app.currentView = "editor";
     },
 );
+
 watch(
     () => keys["/"]?.value,
-    (pressed) => {
-        if (!pressed) return;
+    (pressed, prev) => {
+        if (!(pressed && !prev)) return;
         const el = document.getElementById(
             "tree-filter",
         ) as HTMLInputElement | null;
@@ -219,6 +263,12 @@ watch(
                         <span class="kbd">/</span>
                     </div>
 
+                    <div
+                        class="px-3 py-2 border-b border-slate-800 text-[11px] text-slate-500"
+                    >
+                        {{ debugSummary }}
+                    </div>
+
                     <div class="flex-1 min-h-0 overflow-auto p-2">
                         <div
                             v-if="repo.loading"
@@ -237,6 +287,13 @@ watch(
                             class="text-xs text-slate-500 p-2"
                         >
                             Open a repository to load documents.
+                        </div>
+                        <div
+                            v-else-if="flatTree.length === 0"
+                            class="text-xs text-slate-500 p-2"
+                        >
+                            Repository loaded but no doorstop document/items
+                            were detected.
                         </div>
                         <div v-else class="space-y-1 text-sm">
                             <div
@@ -259,13 +316,15 @@ watch(
                                 @dblclick="activateCursorRow"
                             >
                                 <template v-if="row.kind === 'doc'">
-                                    <span class="mr-2 text-slate-500">{{
-                                        (app.expandedDocs[row.key] ?? true)
-                                            ? "▾"
-                                            : "▸"
-                                    }}</span>
+                                    <span class="mr-2 text-slate-500">
+                                        {{
+                                            (app.expandedDocs[row.key] ?? true)
+                                                ? "▾"
+                                                : "▸"
+                                        }}
+                                    </span>
                                     <span
-                                        @click.stop="app.onToggleDoc(row.key)"
+                                        @click.stop="app.toggleDoc(row.key)"
                                         >{{ row.label }}</span
                                     >
                                 </template>
