@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useMagicKeys } from "@vueuse/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useAppStore } from "./stores/app";
@@ -8,21 +8,13 @@ import { useRepoStore } from "./stores/repo";
 const app = useAppStore();
 const repo = useRepoStore();
 
-const {
-    Ctrl_O,
-    Ctrl_G,
-    Ctrl_Shift_N,
-    Slash,
-    Escape,
-    ArrowDown,
-    ArrowUp,
-    Enter,
-} = useMagicKeys();
+const keys = useMagicKeys();
+const flatTreeCursor = ref(0);
 
 const flatTree = computed(() => {
     const q = app.treeFilter.trim().toLowerCase();
     const rows: Array<
-        | { kind: "doc"; key: string; label: string; count: number }
+        | { kind: "doc"; key: string; label: string }
         | { kind: "item"; uid: string; header: string; docKey: string }
     > = [];
 
@@ -31,16 +23,14 @@ const flatTree = computed(() => {
             kind: "doc",
             key: d.prefix,
             label: `${d.prefix} (${d.count})`,
-            count: d.count,
         });
-
         const expanded = app.expandedDocs[d.prefix] ?? true;
         if (!expanded) continue;
 
         for (const it of d.items) {
             const header = String(it.data.header ?? "");
-            const line = `${it.uid} ${header}`.toLowerCase();
-            if (!q || line.includes(q)) {
+            const hay = `${it.uid} ${header}`.toLowerCase();
+            if (!q || hay.includes(q)) {
                 rows.push({
                     kind: "item",
                     uid: it.uid,
@@ -50,11 +40,9 @@ const flatTree = computed(() => {
             }
         }
     }
-
     return rows;
 });
 
-const treeCursor = ref(0);
 const selectedItem = computed(() => repo.findItem(app.selectedUid));
 
 const viewLabel = computed(() => {
@@ -67,72 +55,101 @@ function setView(v: "editor" | "batch" | "git") {
     app.currentView = v;
 }
 
+let openingRepo = false;
 async function openRepository() {
-    const path = await open({
-        directory: true,
-        multiple: false,
-        title: "Open Doorstop repository",
-    });
-
-    if (!path || Array.isArray(path)) return;
-    app.repoPath = path;
-    await repo.load(path);
-
-    const firstUid = repo.allItems[0]?.uid;
-    if (firstUid) app.selectedUid = firstUid;
+    if (openingRepo) return;
+    openingRepo = true;
+    try {
+        const path = await open({
+            directory: true,
+            multiple: false,
+            title: "Open Doorstop repository",
+        });
+        if (!path || Array.isArray(path)) return;
+        app.repoPath = path;
+        await repo.load(path);
+        const firstUid = repo.allItems[0]?.uid;
+        if (firstUid) app.selectedUid = firstUid;
+    } finally {
+        openingRepo = false;
+    }
 }
 
 function moveCursor(delta: number) {
     if (!flatTree.value.length) return;
-    treeCursor.value = Math.max(
+    flatTreeCursor.value = Math.max(
         0,
-        Math.min(flatTree.value.length - 1, treeCursor.value + delta),
+        Math.min(flatTree.value.length - 1, flatTreeCursor.value + delta),
     );
 }
 
 function activateCursorRow() {
-    const row = flatTree.value[treeCursor.value];
+    const row = flatTree.value[flatTreeCursor.value];
     if (!row) return;
     if (row.kind === "doc") {
         app.toggleDoc(row.key);
-        return;
+    } else {
+        app.selectedUid = row.uid;
+        app.currentView = "editor";
     }
-    app.selectedUid = row.uid;
-    app.currentView = "editor";
 }
 
-function onToggleDoc(prefix: string) {
-    app.toggleDoc(prefix);
-}
-
-if (Ctrl_O) {
-    // noop: ensures reactivity retention in some bundlers
-}
-
-watchShortcuts();
-function watchShortcuts() {
-    // lightweight watcher wiring without extra imports:
-    setInterval(async () => {
-        if (Ctrl_O.value) await openRepository();
-        if (Ctrl_G.value)
+watch(
+    () => keys["Ctrl+O"]?.value,
+    async (pressed) => {
+        if (pressed) await openRepository();
+    },
+);
+watch(
+    () => keys["Ctrl+G"]?.value,
+    (pressed) => {
+        if (pressed)
             app.currentView = app.currentView === "git" ? "editor" : "git";
-        if (Ctrl_Shift_N.value) app.currentView = "batch";
-        if (Slash.value) {
-            const el = document.getElementById(
-                "tree-filter",
-            ) as HTMLInputElement | null;
-            el?.focus();
-        }
-        if (Escape.value) {
-            app.commandPaletteOpen = false;
-            app.linkFinderOpen = false;
-            if (app.currentView === "batch") app.currentView = "editor";
-        }
-        if (ArrowDown.value) moveCursor(1);
-        if (ArrowUp.value) moveCursor(-1);
-        if (Enter.value) activateCursorRow();
-    }, 120);
-}
+    },
+);
+watch(
+    () => keys["Ctrl+Shift+N"]?.value,
+    (pressed) => {
+        if (pressed) app.currentView = "batch";
+    },
+);
+watch(
+    () => keys["ArrowDown"]?.value,
+    (pressed) => {
+        if (pressed) moveCursor(1);
+    },
+);
+watch(
+    () => keys["ArrowUp"]?.value,
+    (pressed) => {
+        if (pressed) moveCursor(-1);
+    },
+);
+watch(
+    () => keys["Enter"]?.value,
+    (pressed) => {
+        if (pressed) activateCursorRow();
+    },
+);
+watch(
+    () => keys["Escape"]?.value,
+    (pressed) => {
+        if (!pressed) return;
+        app.commandPaletteOpen = false;
+        app.linkFinderOpen = false;
+        if (app.currentView === "batch") app.currentView = "editor";
+    },
+);
+watch(
+    () => keys["/"]?.value,
+    (pressed) => {
+        if (!pressed) return;
+        const el = document.getElementById(
+            "tree-filter",
+        ) as HTMLInputElement | null;
+        el?.focus();
+    },
+);
 </script>
 
 <template>
@@ -142,9 +159,7 @@ function watchShortcuts() {
         >
             <header class="bg-panel px-4 flex items-center justify-between">
                 <div class="flex items-center gap-4 min-w-0">
-                    <div class="text-sm font-bold tracking-wide">
-                        WEDGE · Doorstop Manager
-                    </div>
+                    <div class="text-sm font-bold tracking-wide">WEDGE</div>
                     <div class="h-4 w-px bg-slate-700"></div>
                     <div class="text-xs text-slate-400 truncate max-w-[50vw]">
                         {{ app.repoPath || "No repository opened" }}
