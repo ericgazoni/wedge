@@ -7,37 +7,29 @@ import type {
   DocumentConfig,
 } from "../types/doorstop";
 
-type DirEntry = {
-  name: string;
+type FsEntry = {
+  name?: string;
   isDirectory?: boolean;
   isFile?: boolean;
+  children?: FsEntry[];
 };
 
-async function listDir(path: string): Promise<DirEntry[]> {
-  const entries = await readDir(path);
-  return entries.map((e) => ({
-    name: e.name ?? "",
-    isDirectory: e.isDirectory,
-    isFile: e.isFile,
-  }));
+function hasYamlExt(name: string): boolean {
+  return name.endsWith(".yml") || name.endsWith(".yaml");
 }
 
-function isYamlItemFile(name: string): boolean {
-  return /\.ya?ml$/i.test(name) && name !== ".doorstop.yml";
+function isItemFileName(name: string): boolean {
+  if (name === ".doorstop.yml" || name === ".doorstop.yaml") return false;
+  return hasYamlExt(name);
 }
 
-function uidFromFileName(fileName: string): string {
-  return fileName.replace(/\.ya?ml$/i, "");
+function uidFromFileName(name: string): string {
+  return name.replace(/\.ya?ml$/i, "");
 }
 
 function defaultDocConfig(prefix: string): DocumentConfig {
   return {
-    settings: {
-      digits: 3,
-      prefix,
-      parent: null,
-      sep: "",
-    },
+    settings: { digits: 3, prefix, parent: null, sep: "" },
     attributes: {},
   };
 }
@@ -64,10 +56,10 @@ async function parseDocConfig(
   }
 }
 
-async function parseItemFile(
+async function parseItem(
   filePath: string,
-  docPrefix: string,
   fileName: string,
+  docPrefix: string,
 ): Promise<DoorstopItem> {
   const raw = await readTextFile(filePath);
   const data = (load(raw) ?? {}) as Record<string, unknown>;
@@ -79,57 +71,63 @@ async function parseItemFile(
   };
 }
 
-async function scanDocument(
-  docDirPath: string,
-  docDirName: string,
-): Promise<DoorstopDocument | null> {
-  const configPath = `${docDirPath}/.doorstop.yml`;
-  const hasConfig = await exists(configPath);
-  if (!hasConfig) return null;
+function looksLikeDir(entry: FsEntry): boolean {
+  if (entry.isDirectory === true) return true;
+  if (entry.isFile === true) return false;
+  return !entry.name?.includes(".");
+}
 
-  const config = await parseDocConfig(configPath, docDirName);
-
-  const entries = await listDir(docDirPath);
-  const itemFiles = entries
-    .filter((e) => e.isFile && !!e.name && isYamlItemFile(e.name))
-    .map((e) => e.name)
-    .sort((a, b) => a.localeCompare(b));
-
-  const items: DoorstopItem[] = [];
-  for (const fileName of itemFiles) {
-    const itemPath = `${docDirPath}/${fileName}`;
-    const item = await parseItemFile(
-      itemPath,
-      config.settings.prefix,
-      fileName,
-    );
-    items.push(item);
-  }
-
-  return {
-    name: docDirName,
-    dirPath: docDirPath,
-    configPath,
-    config,
-    items,
-  };
+function looksLikeFile(entry: FsEntry): boolean {
+  if (entry.isFile === true) return true;
+  if (entry.isDirectory === true) return false;
+  return !!entry.name?.includes(".");
 }
 
 export async function scanDoorstopRepository(
   rootPath: string,
 ): Promise<RepoModel> {
-  const rootEntries = await listDir(rootPath);
-  const docDirs = rootEntries
-    .filter((e) => e.isDirectory && !!e.name && !e.name.startsWith("."))
-    .map((e) => e.name)
+  const root = (await readDir(rootPath)) as FsEntry[];
+
+  const candidateDirs = root
+    .filter((e) => !!e.name && looksLikeDir(e))
+    .map((e) => e.name as string)
     .sort((a, b) => a.localeCompare(b));
 
   const documents: DoorstopDocument[] = [];
 
-  for (const dirName of docDirs) {
-    const absDir = `${rootPath}/${dirName}`;
-    const doc = await scanDocument(absDir, dirName);
-    if (doc) documents.push(doc);
+  for (const dirName of candidateDirs) {
+    const dirPath = `${rootPath}/${dirName}`;
+    const configYml = `${dirPath}/.doorstop.yml`;
+    const configYaml = `${dirPath}/.doorstop.yaml`;
+
+    const hasYml = await exists(configYml);
+    const hasYaml = await exists(configYaml);
+    if (!hasYml && !hasYaml) continue;
+
+    const configPath = hasYml ? configYml : configYaml;
+    const config = await parseDocConfig(configPath, dirName);
+
+    const entries = (await readDir(dirPath)) as FsEntry[];
+    const itemNames = entries
+      .filter((e) => !!e.name && looksLikeFile(e))
+      .map((e) => e.name as string)
+      .filter((n) => isItemFileName(n))
+      .sort((a, b) => a.localeCompare(b));
+
+    const items: DoorstopItem[] = [];
+    for (const fileName of itemNames) {
+      const itemPath = `${dirPath}/${fileName}`;
+      const item = await parseItem(itemPath, fileName, config.settings.prefix);
+      items.push(item);
+    }
+
+    documents.push({
+      name: dirName,
+      dirPath,
+      configPath,
+      config,
+      items,
+    });
   }
 
   documents.sort((a, b) =>
@@ -137,12 +135,4 @@ export async function scanDoorstopRepository(
   );
 
   return { rootPath, documents };
-}
-
-export function buildUidIndex(repo: RepoModel): Map<string, DoorstopItem> {
-  const m = new Map<string, DoorstopItem>();
-  for (const d of repo.documents) {
-    for (const it of d.items) m.set(it.uid, it);
-  }
-  return m;
 }

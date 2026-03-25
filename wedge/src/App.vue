@@ -248,14 +248,14 @@ watch(
                                 "
                                 class="px-2 py-1 rounded cursor-default border"
                                 :class="[
-                                    idx === treeCursor
+                                    idx === flatTreeCursor
                                         ? 'border-sky-500 bg-slate-800'
                                         : 'border-transparent',
                                     row.kind === 'doc'
                                         ? 'text-slate-300 font-semibold'
                                         : 'text-slate-400 pl-6',
                                 ]"
-                                @click="treeCursor = idx"
+                                @click="flatTreeCursor = idx"
                                 @dblclick="activateCursorRow"
                             >
                                 <template v-if="row.kind === 'doc'">
@@ -264,9 +264,10 @@ watch(
                                             ? "▾"
                                             : "▸"
                                     }}</span>
-                                    <span @click.stop="onToggleDoc(row.key)">{{
-                                        row.label
-                                    }}</span>
+                                    <span
+                                        @click.stop="app.onToggleDoc(row.key)"
+                                        >{{ row.label }}</span
+                                    >
                                 </template>
                                 <template v-else>
                                     <span class="text-slate-300">{{
