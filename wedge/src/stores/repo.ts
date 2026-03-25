@@ -1,7 +1,12 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
-import type { RepoModel, DoorstopItem } from "../types/doorstop";
-import { scanDoorstopRepository } from "../services/doorstop";
+import type { RepoModel, DoorstopItem, DoorstopDocument } from "../types/doorstop";
+import {
+  createDoorstopItem,
+  deleteDoorstopItem,
+  scanDoorstopRepository,
+  writeDoorstopItem,
+} from "../services/doorstop";
 
 export const useRepoStore = defineStore("repo", () => {
   const repo = ref<RepoModel | null>(null);
@@ -59,6 +64,73 @@ export const useRepoStore = defineStore("repo", () => {
     return map;
   });
 
+  function findDocument(prefix: string): DoorstopDocument | null {
+    return (
+      repo.value?.documents.find((d) => d.config.settings.prefix === prefix) ??
+      null
+    );
+  }
+
+  function findItemWithDocument(uid: string): {
+    document: DoorstopDocument;
+    item: DoorstopItem;
+    index: number;
+  } | null {
+    if (!repo.value) return null;
+
+    for (const document of repo.value.documents) {
+      const index = document.items.findIndex((x) => x.uid === uid);
+      if (index >= 0) {
+        return {
+          document,
+          item: document.items[index],
+          index,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  async function saveItem(uid: string, data: Record<string, unknown>) {
+    const hit = findItemWithDocument(uid);
+    if (!hit) return false;
+
+    await writeDoorstopItem(hit.item.filePath, data);
+    hit.item.data = structuredClone(data);
+    return true;
+  }
+
+  async function createItem(
+    docPrefix: string,
+    partial?: Record<string, unknown>,
+  ): Promise<DoorstopItem | null> {
+    const document = findDocument(docPrefix);
+    if (!document) return null;
+
+    const created = await createDoorstopItem(document, partial);
+    document.items.push(created);
+    document.items.sort((a, b) => a.uid.localeCompare(b.uid));
+    return created;
+  }
+
+  async function duplicateItem(uid: string): Promise<DoorstopItem | null> {
+    const hit = findItemWithDocument(uid);
+    if (!hit) return null;
+
+    const cloneData = structuredClone(hit.item.data);
+    return createItem(hit.document.config.settings.prefix, cloneData);
+  }
+
+  async function deleteItem(uid: string): Promise<boolean> {
+    const hit = findItemWithDocument(uid);
+    if (!hit) return false;
+
+    await deleteDoorstopItem(hit.item.filePath);
+    hit.document.items.splice(hit.index, 1);
+    return true;
+  }
+
   return {
     repo,
     loading,
@@ -70,5 +142,10 @@ export const useRepoStore = defineStore("repo", () => {
     load,
     documentTree,
     allDocsByPrefix,
+    findDocument,
+    saveItem,
+    createItem,
+    duplicateItem,
+    deleteItem,
   };
 });

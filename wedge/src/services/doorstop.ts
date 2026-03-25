@@ -1,5 +1,5 @@
-import { exists, readDir, readTextFile } from "@tauri-apps/plugin-fs";
-import { load } from "js-yaml";
+import { exists, readDir, readTextFile, remove, writeTextFile } from "@tauri-apps/plugin-fs";
+import { dump, load } from "js-yaml";
 import type {
   DocumentConfig,
   DoorstopDocument,
@@ -338,3 +338,180 @@ export async function scanDoorstopRepository(
 
   return { rootPath: normalizedRoot, documents };
 }
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function extFromPath(path: string): "yaml" | "markdown" {
+  return isMarkdownExt(path) ? "markdown" : "yaml";
+}
+
+function ensureTrailingNewline(text: string): string {
+  return text.endsWith("\n") ? text : `${text}\n`;
+}
+
+function serializeItemToFile(
+  data: Record<string, unknown>,
+  filePath: string,
+): string {
+  if (extFromPath(filePath) === "markdown") {
+    const frontmatter = { ...data };
+    const body = typeof frontmatter.text === "string" ? frontmatter.text : "";
+    delete frontmatter.text;
+
+    const fm = dump(frontmatter, {
+      sortKeys: false,
+      lineWidth: -1,
+      noRefs: true,
+    }).trimEnd();
+
+    const parts = ["---", fm.length ? fm : "{}", "---"];
+    if (body.length) parts.push(body);
+    return ensureTrailingNewline(parts.join("\n"));
+  }
+
+  return ensureTrailingNewline(
+    dump(data, {
+      sortKeys: false,
+      lineWidth: -1,
+      noRefs: true,
+    }),
+  );
+}
+
+function parseLinks(input: unknown): Array<Record<string, string | null>> {
+  if (!Array.isArray(input)) return [];
+  const links: Array<Record<string, string | null>> = [];
+
+  for (const entry of input) {
+    if (!entry || typeof entry !== "object") continue;
+    const obj = entry as Record<string, unknown>;
+    const key = Object.keys(obj)[0];
+    if (!key) continue;
+    const value = obj[key];
+    links.push({ [key]: value == null ? null : String(value) });
+  }
+
+  return links;
+}
+
+function normalizeDoorstopData(
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  const out = { ...input };
+  out.links = parseLinks(out.links);
+  return out;
+}
+
+function buildDefaultItemData(
+  defaults?: Record<string, unknown>,
+): Record<string, unknown> {
+  return normalizeDoorstopData({
+    active: true,
+    derived: false,
+    header: "",
+    level: 1.0,
+    links: [],
+    normative: true,
+    ref: "",
+    reviewed: null,
+    text: "",
+    ...(defaults ?? {}),
+  });
+}
+
+function getNextUidNumber(document: DoorstopDocument): number {
+  const { prefix, sep } = document.config.settings;
+  const re = new RegExp(
+    `^${escapeRegExp(prefix)}${escapeRegExp(sep)}(\\d+)$`,
+    "i",
+  );
+
+  let max = 0;
+  for (const item of document.items) {
+    const match = item.uid.match(re);
+    if (!match) continue;
+    const n = Number(match[1]);
+    if (!Number.isFinite(n)) continue;
+    max = Math.max(max, n);
+  }
+
+  return max + 1;
+}
+
+function buildUid(document: DoorstopDocument, n: number): string {
+  const { prefix, sep, digits } = document.config.settings;
+  return `${prefix}${sep}${String(n).padStart(Math.max(1, digits), "0")}`;
+}
+
+function itemPathFromUid(document: DoorstopDocument, uid: string): string {
+  return joinPath(document.dirPath, `${uid}.yml`);
+}
+
+export function getCustomAttributes(
+  data: Record<string, unknown>,
+): Record<string, unknown> {
+  const standard = new Set([
+    "active",
+    "derived",
+    "header",
+    "level",
+    "links",
+    "normative",
+    "ref",
+    "reviewed",
+    "text",
+  ]);
+
+  const attrs: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (!standard.has(k)) attrs[k] = v;
+  }
+  return attrs;
+}
+
+export async function writeDoorstopItem(
+  filePath: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const normalized = normalizeDoorstopData(data);
+  await writeTextFile(filePath, serializeItemToFile(normalized, filePath));
+}
+
+export async function createDoorstopItem(
+  document: DoorstopDocument,
+  partial?: Record<string, unknown>,
+): Promise<DoorstopItem> {
+  let next = getNextUidNumber(document);
+  let uid = buildUid(document, next);
+  let filePath = itemPathFromUid(document, uid);
+
+  while (await exists(filePath)) {
+    next += 1;
+    uid = buildUid(document, next);
+    filePath = itemPathFromUid(document, uid);
+  }
+
+  const defaults = document.config.attributes?.defaults as
+    | Record<string, unknown>
+    | undefined;
+  const data = normalizeDoorstopData({
+    ...buildDefaultItemData(defaults),
+    ...(partial ?? {}),
+  });
+
+  await writeDoorstopItem(filePath, data);
+
+  return {
+    uid,
+    filePath,
+    docPrefix: document.config.settings.prefix,
+    data,
+  };
+}
+
+export async function deleteDoorstopItem(filePath: string): Promise<void> {
+  await remove(filePath);
+}
+
