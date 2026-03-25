@@ -340,6 +340,7 @@ async function deleteCurrentItem() {
         app.selectedUid = sameDocFirst;
         editorMessage.value = `Deleted ${currentUid}.`;
     } catch (error) {
+      console.error(error);
         editorMessage.value =
             error instanceof Error ? error.message : "Failed to delete item.";
     }
