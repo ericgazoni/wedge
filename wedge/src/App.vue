@@ -1,160 +1,277 @@
 <script setup lang="ts">
-import { ref } from "vue";
-import { invoke } from "@tauri-apps/api/core";
+import { computed } from "vue";
+import { useAppStore } from "./stores/app";
 
-const greetMsg = ref("");
-const name = ref("");
+const app = useAppStore();
 
-async function greet() {
-  // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-  greetMsg.value = await invoke("greet", { name: name.value });
+const viewLabel = computed(() => {
+    if (app.currentView === "editor") return "Editor";
+    if (app.currentView === "batch") return "Batch";
+    return "Git";
+});
+
+function setView(v: "editor" | "batch" | "git") {
+    app.currentView = v;
 }
 </script>
 
 <template>
-  <main class="container">
-    <h1>Welcome to Tauri + Vue</h1>
+    <div class="h-full w-full bg-bg text-text">
+        <div
+            class="h-full w-full grid grid-rows-[56px_1fr_34px] gap-px bg-slate-800"
+        >
+            <!-- TITLE BAR -->
+            <header
+                class="bg-panel px-4 flex items-center justify-between shadow-[inset_0_-1px_0_0_rgb(30_41_59)]"
+            >
+                <div class="flex items-center gap-4 min-w-0">
+                    <div class="text-sm font-bold tracking-wide">
+                        WEDGE - Doorstop Manager
+                    </div>
+                    <div class="h-4 w-px bg-slate-700"></div>
+                    <div class="text-xs text-slate-400 truncate max-w-[50vw]">
+                        {{ app.repoPath || "No repository opened" }}
+                    </div>
+                </div>
 
-    <div class="row">
-      <a href="https://vitejs.dev" target="_blank">
-        <img src="/vite.svg" class="logo vite" alt="Vite logo" />
-      </a>
-      <a href="https://tauri.app" target="_blank">
-        <img src="/tauri.svg" class="logo tauri" alt="Tauri logo" />
-      </a>
-      <a href="https://vuejs.org/" target="_blank">
-        <img src="./assets/vue.svg" class="logo vue" alt="Vue logo" />
-      </a>
+                <div class="flex items-center gap-2">
+                    <button
+                        class="btn"
+                        :class="{
+                            'border-sky-500 text-sky-300':
+                                app.currentView === 'editor',
+                        }"
+                        @click="setView('editor')"
+                    >
+                        Editor
+                    </button>
+                    <button
+                        class="btn"
+                        :class="{
+                            'border-sky-500 text-sky-300':
+                                app.currentView === 'batch',
+                        }"
+                        @click="setView('batch')"
+                    >
+                        Batch
+                    </button>
+                    <button
+                        class="btn"
+                        :class="{
+                            'border-sky-500 text-sky-300':
+                                app.currentView === 'git',
+                        }"
+                        @click="setView('git')"
+                    >
+                        Git
+                    </button>
+                </div>
+            </header>
+
+            <!-- BODY -->
+            <main
+                class="min-h-0 grid grid-cols-[320px_1fr] gap-px bg-slate-800"
+            >
+                <!-- LEFT TREE PANE -->
+                <aside class="bg-panel min-h-0 flex flex-col">
+                    <div
+                        class="px-3 py-2 border-b border-slate-800 flex items-center gap-2"
+                    >
+                        <input
+                            v-model="app.treeFilter"
+                            class="input w-full h-8"
+                            placeholder="Filter tree (/)"
+                        />
+                        <span class="kbd">/</span>
+                    </div>
+
+                    <div class="flex-1 min-h-0 overflow-auto p-3">
+                        <div
+                            class="text-[11px] uppercase tracking-wider text-slate-500 mb-2"
+                        >
+                            Documents
+                        </div>
+
+                        <div class="space-y-1 text-sm">
+                            <div
+                                class="px-2 py-1 rounded bg-panel2 border border-slate-700 text-slate-300"
+                            >
+                                REQ <span class="text-slate-500">(0)</span>
+                            </div>
+                            <div
+                                class="px-2 py-1 rounded bg-panel2 border border-slate-700 text-slate-300"
+                            >
+                                TST <span class="text-slate-500">(0)</span>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 text-xs text-slate-500">
+                            Tree contents will populate once repo scanning is
+                            wired in phase 2.
+                        </div>
+                    </div>
+
+                    <div
+                        class="px-3 py-2 border-t border-slate-800 text-xs text-slate-400 flex flex-wrap gap-2"
+                    >
+                        <span class="kbd">j/k</span><span>Navigate</span>
+                        <span class="kbd">Enter</span><span>Open</span>
+                        <span class="kbd">Space</span><span>Collapse</span>
+                    </div>
+                </aside>
+
+                <!-- RIGHT CONTENT PANE -->
+                <section class="bg-panel min-h-0 flex flex-col">
+                    <div
+                        class="px-4 py-2 border-b border-slate-800 flex items-center justify-between"
+                    >
+                        <div
+                            class="text-xs uppercase tracking-wider text-slate-500"
+                        >
+                            {{ viewLabel }} View
+                        </div>
+                        <div class="text-xs text-slate-400">
+                            <span class="kbd">Ctrl+P</span> Command Palette
+                        </div>
+                    </div>
+
+                    <div class="flex-1 min-h-0 overflow-auto p-4">
+                        <template v-if="app.currentView === 'editor'">
+                            <div class="grid grid-cols-2 gap-3 max-w-5xl">
+                                <div
+                                    class="col-span-2 grid grid-cols-[140px_1fr] items-center gap-2"
+                                >
+                                    <label class="text-sm text-slate-400"
+                                        >UID</label
+                                    >
+                                    <input
+                                        class="input h-9"
+                                        readonly
+                                        value="-"
+                                    />
+                                </div>
+
+                                <div
+                                    class="col-span-2 grid grid-cols-[140px_1fr] items-center gap-2"
+                                >
+                                    <label class="text-sm text-slate-400"
+                                        >Header</label
+                                    >
+                                    <input
+                                        class="input h-9"
+                                        placeholder="Item header"
+                                    />
+                                </div>
+
+                                <div
+                                    class="col-span-2 grid grid-cols-[140px_1fr] items-start gap-2"
+                                >
+                                    <label class="text-sm text-slate-400 mt-2"
+                                        >Text</label
+                                    >
+                                    <textarea
+                                        class="input min-h-[180px] resize-y"
+                                        placeholder="Requirement text"
+                                    ></textarea>
+                                </div>
+
+                                <div
+                                    class="grid grid-cols-[140px_1fr] items-center gap-2 col-span-1"
+                                >
+                                    <label class="text-sm text-slate-400"
+                                        >Active</label
+                                    >
+                                    <button class="btn w-fit">true</button>
+                                </div>
+
+                                <div
+                                    class="grid grid-cols-[140px_1fr] items-center gap-2 col-span-1"
+                                >
+                                    <label class="text-sm text-slate-400"
+                                        >Reviewed</label
+                                    >
+                                    <button class="btn w-fit">null</button>
+                                </div>
+                            </div>
+                        </template>
+
+                        <template v-else-if="app.currentView === 'batch'">
+                            <div class="max-w-5xl space-y-3">
+                                <div class="text-sm text-slate-300">
+                                    Rapid entry (one line = one item)
+                                </div>
+                                <div class="panel p-3 space-y-2">
+                                    <input
+                                        class="input w-full h-9"
+                                        placeholder="Item title..."
+                                    />
+                                    <input
+                                        class="input w-full h-9"
+                                        placeholder="Item title..."
+                                    />
+                                    <input
+                                        class="input w-full h-9"
+                                        placeholder="Item title..."
+                                    />
+                                </div>
+                            </div>
+                        </template>
+
+                        <template v-else>
+                            <div class="max-w-5xl grid grid-cols-2 gap-3">
+                                <div class="panel p-3">
+                                    <div
+                                        class="text-xs uppercase text-slate-500 mb-2"
+                                    >
+                                        Branch
+                                    </div>
+                                    <div class="text-sm">-</div>
+                                </div>
+                                <div class="panel p-3">
+                                    <div
+                                        class="text-xs uppercase text-slate-500 mb-2"
+                                    >
+                                        Working Tree
+                                    </div>
+                                    <div class="text-sm">
+                                        staged: 0 · modified: 0
+                                    </div>
+                                </div>
+                                <div class="col-span-2 panel p-3 min-h-[220px]">
+                                    <div
+                                        class="text-xs uppercase text-slate-500 mb-2"
+                                    >
+                                        Recent commits
+                                    </div>
+                                    <div class="text-sm text-slate-400">
+                                        No git data yet
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div
+                        class="px-4 py-2 border-t border-slate-800 text-xs text-slate-400 flex items-center gap-3"
+                    >
+                        <span class="kbd">Ctrl+S</span
+                        ><span>Save + Commit</span>
+                        <span class="kbd">Ctrl+Shift+S</span
+                        ><span>Save + Push</span> <span class="kbd">Esc</span
+                        ><span>Close overlay</span>
+                    </div>
+                </section>
+            </main>
+
+            <!-- STATUS BAR -->
+            <footer
+                class="bg-panel px-4 flex items-center justify-between text-xs border-t border-slate-800"
+            >
+                <div class="text-slate-300">
+                    branch: - | staged: 0 | modified: 0
+                </div>
+                <div class="text-slate-400">docs: 0 | items: 0 | sync: -</div>
+            </footer>
+        </div>
     </div>
-    <p>Click on the Tauri, Vite, and Vue logos to learn more.</p>
-
-    <form class="row" @submit.prevent="greet">
-      <input id="greet-input" v-model="name" placeholder="Enter a name..." />
-      <button type="submit">Greet</button>
-    </form>
-    <p>{{ greetMsg }}</p>
-  </main>
 </template>
-
-<style scoped>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.vue:hover {
-  filter: drop-shadow(0 0 2em #249b73);
-}
-
-</style>
-<style>
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
-  margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
-
-  a:hover {
-    color: #24c8db;
-  }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
-}
-
-</style>

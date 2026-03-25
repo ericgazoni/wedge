@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    color-scheme: dark;
+}
+
+html,
+body,
+#app {
+    @apply h-full w-full m-0 p-0 bg-bg text-text font-mono;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+.input {
+    @apply bg-panel2 border border-slate-700 rounded-md px-2 py-1 text-sm outline-none focus:border-sky-500;
+}
+
+.btn {
+    @apply px-2 py-1 rounded-md border border-slate-700 bg-panel2 hover:bg-slate-800 text-sm;
+}
+
+.kbd {
+    @apply text-[10px] leading-none px-1.5 py-1 rounded border border-slate-600 bg-slate-800 text-slate-300;
+}
+
+.panel {
+    @apply bg-panel border border-slate-800 rounded-md;
+}
