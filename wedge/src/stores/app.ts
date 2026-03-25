@@ -15,7 +15,8 @@ export const useAppStore = defineStore("app", () => {
   const hasRepo = computed(() => !!repoPath.value);
 
   function toggleDoc(prefix: string) {
-    expandedDocs.value[prefix] = !expandedDocs.value[prefix];
+    const current = expandedDocs.value[prefix];
+    expandedDocs.value[prefix] = current === undefined ? false : !current;
   }
 
   return {
