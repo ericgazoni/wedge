@@ -168,6 +168,47 @@ function parseMarkdownFrontmatter(raw: string): {
   return { frontmatter, body };
 }
 
+function extractMarkdownHeaderAndText(body: string): {
+  header: string;
+  text: string;
+} {
+  const lines = body.split(/\r?\n/);
+  let firstContentIndex = -1;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].trim().length) {
+      firstContentIndex = i;
+      break;
+    }
+  }
+
+  if (firstContentIndex === -1) {
+    return { header: "", text: "" };
+  }
+
+  const firstContent = lines[firstContentIndex];
+  const match = firstContent.match(/^#{1,6}\s+(.+)\s*$/);
+  if (!match) {
+    return { header: "", text: body.trim() ? body : "" };
+  }
+
+  const header = match[1].trim();
+  const remaining = lines.slice(firstContentIndex + 1).join("\n");
+  const text = remaining.replace(/^\s*\n/, "");
+
+  return { header, text };
+}
+
+function composeMarkdownBody(header: string, text: string): string {
+  const h = header.trim();
+  const t = text;
+
+  if (!h && !t) return "";
+  if (!h) return t;
+  if (!t) return `# ${h}`;
+  return `# ${h}\n\n${t}`;
+}
+
 async function parseItemFile(
   itemPath: string,
   fileName: string,
@@ -183,9 +224,19 @@ async function parseItemFile(
       const { frontmatter, body } = parseMarkdownFrontmatter(raw);
       data = { ...frontmatter };
 
+      const extracted = extractMarkdownHeaderAndText(body);
+      const hasFrontmatterHeader =
+        typeof data.header === "string" && data.header.trim().length > 0;
+
+      if (extracted.header.length) {
+        data.header = extracted.header;
+      } else if (!hasFrontmatterHeader) {
+        data.header = "";
+      }
+
       const hasText = Object.prototype.hasOwnProperty.call(data, "text");
-      if (!hasText && body.trim().length > 0) {
-        data.text = body;
+      if (!hasText || extracted.header.length) {
+        data.text = extracted.text;
       }
     }
 
@@ -357,7 +408,12 @@ function serializeItemToFile(
 ): string {
   if (extFromPath(filePath) === "markdown") {
     const frontmatter = { ...data };
-    const body = typeof frontmatter.text === "string" ? frontmatter.text : "";
+    const header = typeof frontmatter.header === "string" ? frontmatter.header : "";
+    const text = typeof frontmatter.text === "string" ? frontmatter.text : "";
+    const body = composeMarkdownBody(header, text);
+
+    // In markdown mode, header/text live in the markdown body, not frontmatter.
+    delete frontmatter.header;
     delete frontmatter.text;
 
     const fm = dump(frontmatter, {
