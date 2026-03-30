@@ -387,6 +387,16 @@ function activateCursorRow() {
   app.currentView = "editor";
 }
 
+function onTreeRowClick(idx: number) {
+  flatTreeCursor.value = idx;
+  const row = flatTree.value[idx];
+  if (!row) return;
+  if (row.kind === "item") {
+    app.selectedUid = row.uid;
+    app.currentView = "editor";
+  }
+}
+
 async function saveCurrentItem() {
   if (!selectedItem.value || savingItem.value) return;
   savingItem.value = true;
@@ -523,10 +533,9 @@ watch(() => keys["/"]?.value, (p, prev) => {
               <div
                 v-for="(row, idx) in flatTree"
                 :key="row.kind === 'doc' ? `doc-${row.key}` : `item-${row.uid}`"
-                class="px-2 py-1 rounded cursor-default border"
+                class="px-2 py-1 rounded cursor-default border select-none"
                 :class="[idx === flatTreeCursor ? 'border-sky-500 bg-slate-800' : 'border-transparent', row.kind === 'doc' ? 'text-slate-300 font-semibold' : 'text-slate-400 pl-6']"
-                @click="flatTreeCursor = idx"
-                @dblclick="activateCursorRow"
+                @click="onTreeRowClick(idx)"
               >
                 <template v-if="row.kind === 'doc'">
                   <span class="mr-2 text-slate-500">{{ (app.expandedDocs[row.key] ?? true) ? '▾' : '▸' }}</span>
