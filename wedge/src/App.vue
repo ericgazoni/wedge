@@ -41,6 +41,22 @@ const MIN_TREE_WIDTH = 220;
 const MAX_TREE_WIDTH = 760;
 const TREE_WIDTH_STORAGE_KEY = "wedge.treeWidth";
 const LAST_REPO_PATH_STORAGE_KEY = "wedge.lastRepoPath";
+const showActiveOnly = ref(false);
+
+function isTruthyActive(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "yes" || normalized === "1") return true;
+    if (normalized === "false" || normalized === "no" || normalized === "0") return false;
+  }
+  return true;
+}
+
+function isItemActive(item: DoorstopItem): boolean {
+  return isTruthyActive(item.data.active);
+}
 
 function clampTreeWidth(next: number): number {
   return Math.max(MIN_TREE_WIDTH, Math.min(MAX_TREE_WIDTH, next));
@@ -153,13 +169,16 @@ function matchesItemFilter(item: DoorstopItem, rawQuery: string): boolean {
 
 const flatTree = computed(() => {
   const q = app.treeFilter;
+  const onlyActive = showActiveOnly.value;
   const rows: Array<
     | { kind: "doc"; key: string; label: string }
-    | { kind: "item"; uid: string; header: string; docKey: string }
+    | { kind: "item"; uid: string; header: string; docKey: string; active: boolean }
   > = [];
 
   for (const d of repo.documentTree) {
-    const visibleItems = d.items.filter((it) => matchesItemFilter(it, q));
+    const visibleItems = d.items.filter(
+      (it) => matchesItemFilter(it, q) && (!onlyActive || isItemActive(it)),
+    );
     if (q.trim().length > 0 && visibleItems.length === 0) continue;
 
     rows.push({ kind: "doc", key: d.prefix, label: `${d.prefix} (${visibleItems.length})` });
@@ -167,7 +186,7 @@ const flatTree = computed(() => {
 
     for (const it of visibleItems) {
       const header = String(it.data.header ?? "");
-      rows.push({ kind: "item", uid: it.uid, header, docKey: d.prefix });
+      rows.push({ kind: "item", uid: it.uid, header, docKey: d.prefix, active: isItemActive(it) });
     }
   }
 
@@ -814,6 +833,10 @@ onMounted(async () => {
           <div class="px-3 py-2 border-b border-slate-800 flex items-center gap-2">
             <input id="tree-filter" v-model="app.treeFilter" class="input w-full h-8" placeholder="Filter tree (/)" />
             <span class="kbd">/</span>
+            <label class="inline-flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap select-none">
+              <input v-model="showActiveOnly" type="checkbox" class="h-3.5 w-3.5" />
+              Active only
+            </label>
           </div>
           <div class="flex-1 min-h-0 overflow-auto p-2">
             <div v-if="repo.loading" class="text-xs text-slate-400 p-2">Scanning repository...</div>
@@ -825,7 +848,14 @@ onMounted(async () => {
                 v-for="(row, idx) in flatTree"
                 :key="row.kind === 'doc' ? `doc-${row.key}` : `item-${row.uid}`"
                 class="px-2 py-1 rounded cursor-default border select-none"
-                :class="[idx === flatTreeCursor ? 'border-sky-500 bg-slate-800' : 'border-transparent', row.kind === 'doc' ? 'text-slate-300 font-semibold' : 'text-slate-400 pl-6']"
+                :class="[
+                  idx === flatTreeCursor ? 'border-sky-500 bg-slate-800' : 'border-transparent',
+                  row.kind === 'doc'
+                    ? 'text-slate-300 font-semibold'
+                    : row.active
+                      ? 'text-slate-300 pl-6'
+                      : 'text-slate-500 pl-6 italic',
+                ]"
                 @click="onTreeRowClick(idx)"
               >
                 <template v-if="row.kind === 'doc'">
@@ -833,8 +863,13 @@ onMounted(async () => {
                   <span @click.stop="app.toggleDoc(row.key)">{{ row.label }}</span>
                 </template>
                 <template v-else>
+                  <span
+                    class="mr-2 inline-block h-2 w-2 rounded-full align-middle"
+                    :class="row.active ? 'bg-emerald-400/80' : 'bg-slate-600'"
+                  ></span>
                   <span class="text-slate-300">{{ row.uid }}</span>
                   <span class="text-slate-500"> - {{ row.header || "(no header)" }}</span>
+                  <span v-if="!row.active" class="text-[10px] uppercase tracking-wide text-slate-500 ml-2">inactive</span>
                 </template>
               </div>
             </div>
