@@ -713,10 +713,12 @@ watch(() => keys["/"]?.value, (p, prev) => {
                         </div>
                       </div>
                     </div>
+
+                    <hr/>
+
+                    <div v-for="([key, value], idx) in customAttributeEntries" :key="`custom-${idx}-${key}`" class="grid grid-cols-[120px_1fr] gap-2 items-start"><label class="text-sm text-slate-400 mt-2 capitalize">{{ key }}</label><input class="input" :value="formatCustomValue(value)" @input="editorDraft[key] = parseCustomValue(($event.target as HTMLTextAreaElement).value)" /></div>
                   </div>
                 </details>
-
-                <div v-for="([key, value], idx) in customAttributeEntries" :key="`custom-${idx}-${key}`" class="grid grid-cols-[120px_1fr] gap-2 items-start"><label class="text-sm text-slate-400 mt-2">{{ key }}</label><textarea class="input min-h-[72px]" :value="formatCustomValue(value)" @input="editorDraft[key] = parseCustomValue(($event.target as HTMLTextAreaElement).value)" /></div>
               </div>
             </template>
 
