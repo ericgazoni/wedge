@@ -37,6 +37,59 @@ const batchMessage = ref("");
 const savingBatch = ref(false);
 let nextBatchRowId = 1;
 
+const MIN_TREE_WIDTH = 220;
+const MAX_TREE_WIDTH = 760;
+const TREE_WIDTH_STORAGE_KEY = "wedge.treeWidth";
+
+function clampTreeWidth(next: number): number {
+  return Math.max(MIN_TREE_WIDTH, Math.min(MAX_TREE_WIDTH, next));
+}
+
+function loadPersistedTreeWidth(): number {
+  if (typeof window === "undefined") return 320;
+  try {
+    const raw = window.localStorage.getItem(TREE_WIDTH_STORAGE_KEY);
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? clampTreeWidth(parsed) : 320;
+  } catch {
+    return 320;
+  }
+}
+
+const treeWidth = ref(loadPersistedTreeWidth());
+
+function persistTreeWidth(width: number) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(TREE_WIDTH_STORAGE_KEY, String(clampTreeWidth(width)));
+  } catch {
+    // Ignore persistence errors (e.g., storage unavailable in specific runtime modes).
+  }
+}
+
+function startTreeResize(event: MouseEvent) {
+  event.preventDefault();
+  const startX = event.clientX;
+  const startWidth = treeWidth.value;
+
+  document.body.style.userSelect = "none";
+  document.body.style.cursor = "col-resize";
+
+  const onMouseMove = (moveEvent: MouseEvent) => {
+    treeWidth.value = clampTreeWidth(startWidth + (moveEvent.clientX - startX));
+  };
+
+  const onMouseUp = () => {
+    window.removeEventListener("mousemove", onMouseMove);
+    window.removeEventListener("mouseup", onMouseUp);
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+  };
+
+  window.addEventListener("mousemove", onMouseMove);
+  window.addEventListener("mouseup", onMouseUp);
+}
+
 const SEARCH_EXCLUDED_FIELDS = new Set(["reviewed", "level"]);
 
 function collectSearchParts(value: unknown, out: string[]) {
@@ -581,6 +634,10 @@ watch(() => flatTree.value.length, (len) => {
   if (flatTreeCursor.value >= len) flatTreeCursor.value = len - 1;
 });
 
+watch(() => treeWidth.value, (width) => {
+  persistTreeWidth(width);
+});
+
 watch(() => batchSourceItem.value?.uid, () => {
   if (!batchSourceItem.value) return;
   const targets = getDirectChildPrefixes(batchSourceItem.value.docPrefix);
@@ -651,8 +708,8 @@ watch(() => keys["/"]?.value, (p, prev) => {
         </div>
       </header>
 
-      <main class="min-h-0 grid grid-cols-[320px_1fr] gap-px bg-slate-800">
-        <aside class="bg-panel min-h-0 flex flex-col">
+      <main class="min-h-0 flex gap-px bg-slate-800">
+        <aside class="bg-panel min-h-0 flex flex-col shrink-0" :style="{ width: `${treeWidth}px` }">
           <div class="px-3 py-2 border-b border-slate-800 flex items-center gap-2">
             <input id="tree-filter" v-model="app.treeFilter" class="input w-full h-8" placeholder="Filter tree (/)" />
             <span class="kbd">/</span>
@@ -684,7 +741,15 @@ watch(() => keys["/"]?.value, (p, prev) => {
           </div>
         </aside>
 
-        <section class="bg-panel min-h-0 flex flex-col">
+        <div
+          class="w-1.5 bg-slate-800 hover:bg-sky-700 cursor-col-resize shrink-0"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize tree panel"
+          @mousedown="startTreeResize"
+        ></div>
+
+        <section class="bg-panel min-h-0 flex flex-col flex-1 min-w-0">
           <div class="px-4 py-2 border-b border-slate-800 text-xs uppercase tracking-wider text-slate-500">{{ viewLabel }} View</div>
           <div class="flex-1 min-h-0 overflow-auto p-4">
             <template v-if="app.currentView === 'editor'">
