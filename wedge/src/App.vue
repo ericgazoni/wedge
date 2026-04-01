@@ -41,7 +41,25 @@ const MIN_TREE_WIDTH = 220;
 const MAX_TREE_WIDTH = 760;
 const TREE_WIDTH_STORAGE_KEY = "wedge.treeWidth";
 const LAST_REPO_PATH_STORAGE_KEY = "wedge.lastRepoPath";
-const showActiveOnly = ref(false);
+const ACTIVE_ONLY_STORAGE_KEY = "wedge.treeActiveOnly";
+
+function loadPersistedActiveOnly(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(ACTIVE_ONLY_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function persistActiveOnly(value: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(ACTIVE_ONLY_STORAGE_KEY, value ? "1" : "0");
+  } catch {
+    // Ignore persistence errors (e.g., storage unavailable in specific runtime modes).
+  }
+}
 
 function isTruthyActive(value: unknown): boolean {
   if (typeof value === "boolean") return value;
@@ -74,6 +92,7 @@ function loadPersistedTreeWidth(): number {
 }
 
 const treeWidth = ref(loadPersistedTreeWidth());
+const showActiveOnly = ref(loadPersistedActiveOnly());
 
 function persistTreeWidth(width: number) {
   if (typeof window === "undefined") return;
@@ -707,6 +726,10 @@ watch(() => flatTree.value.length, (len) => {
 
 watch(() => treeWidth.value, (width) => {
   persistTreeWidth(width);
+});
+
+watch(() => showActiveOnly.value, (value) => {
+  persistActiveOnly(value);
 });
 
 watch(() => batchSourceItem.value?.uid, () => {
