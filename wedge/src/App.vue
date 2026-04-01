@@ -26,7 +26,6 @@ type BatchRow = {
   derived: boolean;
   normative: boolean;
   ref: string;
-  reviewed: string;
   level: number;
   expanded: boolean;
 };
@@ -249,7 +248,33 @@ function syncDraftFromSelection(item = selectedItem.value) {
   resetEditorMessage();
 }
 
-function createEmptyBatchRow(): BatchRow {
+function getDocumentMaxLevel(prefix: string): number {
+  const doc = repo.documentTree.find((d) => d.prefix === prefix);
+  if (!doc) return 0;
+
+  let max = 0;
+  for (const item of doc.items) {
+    const n = Number(item.data.level);
+    if (Number.isFinite(n)) max = Math.max(max, n);
+  }
+  return max;
+}
+
+function getBatchMaxLevel(): number {
+  let max = 0;
+  for (const row of batchRows.value) {
+    if (Number.isFinite(row.level)) max = Math.max(max, row.level);
+  }
+  return max;
+}
+
+function computeNextBatchLevel(): number {
+  const docMax = batchDocPrefix.value ? getDocumentMaxLevel(batchDocPrefix.value) : 0;
+  const base = Math.max(docMax, getBatchMaxLevel());
+  return Math.round((base + 0.1) * 10) / 10;
+}
+
+function createEmptyBatchRow(level = computeNextBatchLevel()): BatchRow {
   return {
     id: nextBatchRowId++,
     title: "",
@@ -258,8 +283,7 @@ function createEmptyBatchRow(): BatchRow {
     derived: false,
     normative: true,
     ref: "",
-    reviewed: "",
-    level: 1,
+    level,
     expanded: false,
   };
 }
@@ -312,7 +336,6 @@ function normalizeBatchRow(row: BatchRow): Record<string, unknown> {
     derived: row.derived,
     normative: row.normative,
     ref: row.ref,
-    reviewed: row.reviewed.trim() ? row.reviewed : null,
     level: row.level,
     links,
   };
@@ -463,6 +486,16 @@ watch(() => batchSourceItem.value?.uid, () => {
   batchDocPrefix.value = targets.includes(batchDocPrefix.value) ? batchDocPrefix.value : (targets[0] ?? "");
 }, { immediate: true });
 
+watch(() => batchDocPrefix.value, () => {
+  if (
+    batchRows.value.length === 1 &&
+    !batchRows.value[0].title.trim() &&
+    !batchRows.value[0].text.trim()
+  ) {
+    batchRows.value[0].level = computeNextBatchLevel();
+  }
+});
+
 watch(() => [batchDocPrefix.value, batchLinkOptions.value.map((x) => x.uid).join("|")], () => {
   if (!batchDocPrefix.value) return (batchLinkUid.value = "");
   const allowed = new Set(batchLinkOptions.value.map((x) => x.uid));
@@ -602,7 +635,6 @@ watch(() => keys["/"]?.value, (p, prev) => {
                     <div v-if="row.expanded" class="mt-2 grid grid-cols-2 gap-2">
                       <textarea class="input min-h-[90px] col-span-2" v-model="row.text" placeholder="Text" />
                       <input class="input h-9" v-model="row.ref" placeholder="Ref" />
-                      <input class="input h-9" v-model="row.reviewed" placeholder="Reviewed" />
                       <input class="input h-9" type="number" step="0.1" v-model.number="row.level" />
                       <div class="col-span-2 flex gap-4 text-sm">
                         <label class="flex items-center gap-2"><input type="checkbox" v-model="row.active" />active</label>
