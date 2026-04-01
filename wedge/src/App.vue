@@ -37,8 +37,46 @@ const batchMessage = ref("");
 const savingBatch = ref(false);
 let nextBatchRowId = 1;
 
+const SEARCH_EXCLUDED_FIELDS = new Set(["reviewed", "level"]);
+
+function collectSearchParts(value: unknown, out: string[]) {
+  if (value == null) return;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    out.push(String(value));
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) collectSearchParts(entry, out);
+    return;
+  }
+  if (typeof value === "object") {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out.push(k);
+      collectSearchParts(v, out);
+    }
+  }
+}
+
+function buildItemSearchText(item: DoorstopItem): string {
+  const parts: string[] = [item.uid];
+  for (const [field, value] of Object.entries(item.data)) {
+    if (SEARCH_EXCLUDED_FIELDS.has(field)) continue;
+    parts.push(field);
+    collectSearchParts(value, parts);
+  }
+  return parts.join(" ").toLowerCase();
+}
+
+function matchesItemFilter(item: DoorstopItem, rawQuery: string): boolean {
+  const q = rawQuery.trim().toLowerCase();
+  if (!q.length) return true;
+
+  const searchText = buildItemSearchText(item);
+  return searchText.includes(q);
+}
+
 const flatTree = computed(() => {
-  const q = app.treeFilter.trim().toLowerCase();
+  const q = app.treeFilter;
   const rows: Array<
     | { kind: "doc"; key: string; label: string }
     | { kind: "item"; uid: string; header: string; docKey: string }
@@ -50,8 +88,7 @@ const flatTree = computed(() => {
 
     for (const it of d.items) {
       const header = String(it.data.header ?? "");
-      const hay = `${it.uid} ${header}`.toLowerCase();
-      if (!q || hay.includes(q)) {
+      if (matchesItemFilter(it, q)) {
         rows.push({ kind: "item", uid: it.uid, header, docKey: d.prefix });
       }
     }
