@@ -21,6 +21,15 @@ function safeCloneData<T>(value: T): T {
   }
 }
 
+function computeNextDocumentLevel(document: DoorstopDocument): number {
+  let maxLevel = 0;
+  for (const item of document.items) {
+    const level = Number(item.data.level);
+    if (Number.isFinite(level)) maxLevel = Math.max(maxLevel, level);
+  }
+  return Math.round((maxLevel + 0.1) * 10) / 10;
+}
+
 export const useRepoStore = defineStore("repo", () => {
   const repo = ref<RepoModel | null>(null);
   const loading = ref(false);
@@ -132,6 +141,7 @@ export const useRepoStore = defineStore("repo", () => {
     if (!hit) return null;
 
     const cloneData = safeCloneData(hit.item.data);
+    cloneData.level = computeNextDocumentLevel(hit.document);
     return createItem(hit.document.config.settings.prefix, cloneData);
   }
 

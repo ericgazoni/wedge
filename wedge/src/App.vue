@@ -332,11 +332,6 @@ const viewLabel = computed(() =>
   app.currentView === "editor" ? "Editor" : app.currentView === "batch" ? "Batch" : "Git",
 );
 
-const debugSummary = computed(() => {
-  const d = scanDebug.value;
-  return `visited=${d.visitedDirs} candidates=${d.candidateDirs.length} docs=${d.documentDirs.length} parseErrors=${d.parseErrors.length}`;
-});
-
 function getDirectChildPrefixes(prefix: string): string[] {
   return repo.documentTree
     .filter((d) => d.parent === prefix)
@@ -675,6 +670,16 @@ async function deleteCurrentItem() {
   editorMessage.value = `Deleted ${currentUid}.`;
 }
 
+function isDeleteShortcutPressed(): boolean {
+  return Boolean(
+    keys["Ctrl+Delete"]?.value ||
+      keys["Control+Delete"]?.value ||
+      keys["Ctrl+Backspace"]?.value ||
+      keys["Control+Backspace"]?.value ||
+      keys["Meta+Backspace"]?.value,
+  );
+}
+
 watch(() => selectedItem.value, (item) => syncDraftFromSelection(item ?? null), { immediate: true });
 watch(() => flatTree.value.length, (len) => {
   if (!len) return (flatTreeCursor.value = 0);
@@ -719,7 +724,11 @@ watch(() => keys["Ctrl+N"]?.value, async (p, prev) => {
   if (app.currentView === "editor") await createNewItemInCurrentDoc();
 });
 watch(() => keys["Ctrl+D"]?.value, async (p, prev) => p && !prev && app.currentView === "editor" && (await duplicateCurrentItem()));
-watch(() => keys["Ctrl+Delete"]?.value, async (p, prev) => p && !prev && app.currentView === "editor" && (await deleteCurrentItem()));
+watch(isDeleteShortcutPressed, async (p, prev) => {
+  if (!(p && !prev)) return;
+  if (app.currentView !== "editor") return;
+  await deleteCurrentItem();
+});
 watch(() => keys["Ctrl+G"]?.value, (p, prev) => p && !prev && (app.currentView = app.currentView === "git" ? "editor" : "git"));
 watch(() => keys["Ctrl+Shift+N"]?.value, (p, prev) => p && !prev && openBatchMode());
 watch(() => keys["Ctrl+Enter"]?.value, async (p, prev) => p && !prev && app.currentView === "batch" && (await saveBatchItems()));
@@ -753,11 +762,45 @@ onMounted(async () => {
         </div>
         <div class="flex items-center gap-2">
           <button
-            class="btn px-2"
+            class="btn h-8 w-8 p-0 inline-flex items-center justify-center"
             :title="app.theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+            :aria-label="app.theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
             @click="app.toggleTheme"
           >
-            {{ app.theme === "dark" ? "Light" : "Dark" }}
+            <svg
+              v-if="app.theme === 'dark'"
+              class="h-4 w-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="4"></circle>
+              <path d="M12 2v2"></path>
+              <path d="M12 20v2"></path>
+              <path d="m4.93 4.93 1.41 1.41"></path>
+              <path d="m17.66 17.66 1.41 1.41"></path>
+              <path d="M2 12h2"></path>
+              <path d="M20 12h2"></path>
+              <path d="m6.34 17.66-1.41 1.41"></path>
+              <path d="m19.07 4.93-1.41 1.41"></path>
+            </svg>
+            <svg
+              v-else
+              class="h-4 w-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 3a7 7 0 1 0 9 9A9 9 0 1 1 12 3z"></path>
+            </svg>
           </button>
           <button class="btn" @click="openRepository"><span class="kbd mr-2">Ctrl+O</span>Open</button>
           <button class="btn" :class="{ 'border-sky-500 text-sky-300': app.currentView === 'editor' }" @click="setView('editor')">Editor</button>
@@ -772,7 +815,6 @@ onMounted(async () => {
             <input id="tree-filter" v-model="app.treeFilter" class="input w-full h-8" placeholder="Filter tree (/)" />
             <span class="kbd">/</span>
           </div>
-          <div class="px-3 py-2 border-b border-slate-800 text-[11px] text-slate-500">{{ debugSummary }}</div>
           <div class="flex-1 min-h-0 overflow-auto p-2">
             <div v-if="repo.loading" class="text-xs text-slate-400 p-2">Scanning repository...</div>
             <div v-else-if="repo.error" class="text-xs text-red-400 p-2">{{ repo.error }}</div>
