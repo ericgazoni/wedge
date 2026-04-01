@@ -5,10 +5,10 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: "#0b0f14",
-        panel: "#121922",
-        panel2: "#0f141c",
-        text: "#d6deeb",
+        bg: "rgb(var(--color-bg) / <alpha-value>)",
+        panel: "rgb(var(--color-panel) / <alpha-value>)",
+        panel2: "rgb(var(--color-panel2) / <alpha-value>)",
+        text: "rgb(var(--color-text) / <alpha-value>)",
       },
     },
   },

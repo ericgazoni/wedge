@@ -752,6 +752,13 @@ onMounted(async () => {
           <div class="text-xs text-slate-400 truncate max-w-[50vw]">{{ app.repoPath || "No repository opened" }}</div>
         </div>
         <div class="flex items-center gap-2">
+          <button
+            class="btn px-2"
+            :title="app.theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+            @click="app.toggleTheme"
+          >
+            {{ app.theme === "dark" ? "Light" : "Dark" }}
+          </button>
           <button class="btn" @click="openRepository"><span class="kbd mr-2">Ctrl+O</span>Open</button>
           <button class="btn" :class="{ 'border-sky-500 text-sky-300': app.currentView === 'editor' }" @click="setView('editor')">Editor</button>
           <button class="btn" :class="{ 'border-sky-500 text-sky-300': app.currentView === 'batch' }" @click="setView('batch')">Batch</button>

@@ -4,6 +4,18 @@
 
 :root {
     color-scheme: dark;
+    --color-bg: 11 15 20;
+    --color-panel: 18 25 34;
+    --color-panel2: 15 20 28;
+    --color-text: 214 222 235;
+}
+
+:root.theme-light {
+    color-scheme: light;
+    --color-bg: 245 247 251;
+    --color-panel: 232 238 247;
+    --color-panel2: 248 250 253;
+    --color-text: 15 23 42;
 }
 
 html,
@@ -30,4 +42,47 @@ body,
 
 .panel {
     @apply bg-panel border border-slate-800 rounded-md;
+}
+
+:root.theme-light .input {
+    @apply bg-white border-slate-300 text-slate-800;
+}
+
+:root.theme-light .btn {
+    @apply bg-slate-100 border-slate-300 text-slate-800 hover:bg-slate-200;
+}
+
+:root.theme-light .kbd {
+    @apply bg-slate-200 border-slate-300 text-slate-600;
+}
+
+:root.theme-light .bg-slate-800 {
+    background-color: rgb(226 232 240) !important;
+}
+
+:root.theme-light .bg-slate-700 {
+    background-color: rgb(203 213 225) !important;
+}
+
+:root.theme-light .border-slate-800 {
+    border-color: rgb(203 213 225) !important;
+}
+
+:root.theme-light .border-slate-700,
+:root.theme-light .border-slate-600 {
+    border-color: rgb(148 163 184) !important;
+}
+
+:root.theme-light .text-slate-500 {
+    color: rgb(71 85 105) !important;
+}
+
+:root.theme-light .text-slate-400,
+:root.theme-light .text-slate-300,
+:root.theme-light .text-slate-200 {
+    color: rgb(51 65 85) !important;
+}
+
+:root.theme-light .hover\:bg-slate-800:hover {
+    background-color: rgb(203 213 225) !important;
 }
