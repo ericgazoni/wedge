@@ -12,9 +12,9 @@
   "app": {
     "windows": [
       {
-        "title": "wedge",
-        "width": 800,
-        "height": 600
+        "title": "Wedge",
+        "width": 1024,
+        "height": 720
       }
     ],
     "security": {
