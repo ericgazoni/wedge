@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, toRaw, watch } from "vue";
+import { computed, onMounted, ref, toRaw, watch } from "vue";
 import { useMagicKeys } from "@vueuse/core";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { useAppStore } from "./stores/app";
@@ -40,6 +40,7 @@ let nextBatchRowId = 1;
 const MIN_TREE_WIDTH = 220;
 const MAX_TREE_WIDTH = 760;
 const TREE_WIDTH_STORAGE_KEY = "wedge.treeWidth";
+const LAST_REPO_PATH_STORAGE_KEY = "wedge.lastRepoPath";
 
 function clampTreeWidth(next: number): number {
   return Math.max(MIN_TREE_WIDTH, Math.min(MAX_TREE_WIDTH, next));
@@ -62,6 +63,28 @@ function persistTreeWidth(width: number) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(TREE_WIDTH_STORAGE_KEY, String(clampTreeWidth(width)));
+  } catch {
+    // Ignore persistence errors (e.g., storage unavailable in specific runtime modes).
+  }
+}
+
+function loadPersistedRepoPath(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(LAST_REPO_PATH_STORAGE_KEY)?.trim() ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function persistRepoPath(path: string) {
+  if (typeof window === "undefined") return;
+  try {
+    if (path.trim()) {
+      window.localStorage.setItem(LAST_REPO_PATH_STORAGE_KEY, path.trim());
+    } else {
+      window.localStorage.removeItem(LAST_REPO_PATH_STORAGE_KEY);
+    }
   } catch {
     // Ignore persistence errors (e.g., storage unavailable in specific runtime modes).
   }
@@ -534,18 +557,42 @@ function setView(v: "editor" | "batch" | "git") {
 }
 
 let openingRepo = false;
+
+async function loadRepositoryAtPath(path: string): Promise<boolean> {
+  const nextPath = path.trim();
+  if (!nextPath) return false;
+
+  app.repoPath = nextPath;
+  await repo.load(nextPath);
+  scanDebug.value = getLastDoorstopScanDebug();
+  flatTreeCursor.value = 0;
+
+  if (!repo.repo) {
+    app.selectedUid = "";
+    syncDraftFromSelection(null);
+    return false;
+  }
+
+  app.selectedUid = repo.allItems[0]?.uid ?? "";
+  syncDraftFromSelection();
+  persistRepoPath(nextPath);
+  return true;
+}
+
+async function tryOpenLatestRepositoryOnStartup() {
+  const persistedPath = loadPersistedRepoPath();
+  if (!persistedPath) return;
+  const ok = await loadRepositoryAtPath(persistedPath);
+  if (!ok) persistRepoPath("");
+}
+
 async function openRepository() {
   if (openingRepo) return;
   openingRepo = true;
   try {
     const path = await open({ directory: true, multiple: false, title: "Open Doorstop repository" });
     if (!path || Array.isArray(path)) return;
-    app.repoPath = path;
-    await repo.load(path);
-    scanDebug.value = getLastDoorstopScanDebug();
-    app.selectedUid = repo.allItems[0]?.uid ?? "";
-    flatTreeCursor.value = 0;
-    syncDraftFromSelection();
+    await loadRepositoryAtPath(path);
   } finally {
     openingRepo = false;
   }
@@ -688,6 +735,10 @@ watch(() => keys["Escape"]?.value, (p, prev) => {
 watch(() => keys["/"]?.value, (p, prev) => {
   if (!(p && !prev)) return;
   (document.getElementById("tree-filter") as HTMLInputElement | null)?.focus();
+});
+
+onMounted(async () => {
+  await tryOpenLatestRepositoryOnStartup();
 });
 </script>
 
