@@ -854,7 +854,7 @@ onMounted(async () => {
           <div class="flex-1 min-h-0 overflow-auto p-4">
             <template v-if="app.currentView === 'editor'">
               <div v-if="!selectedItem" class="text-sm text-slate-500">Select an item from the tree.</div>
-              <div v-else class="space-y-3 max-w-5xl">
+              <div v-else class="space-y-3 w-full">
                 <div class="flex items-center gap-2">
                   <button class="btn" :disabled="!isDirty || savingItem" @click="saveCurrentItem"><span class="kbd mr-2">Ctrl+S</span>Save</button>
                   <button class="btn" @click="createNewItemInCurrentDoc"><span class="kbd mr-2">Ctrl+N</span>New</button>
@@ -865,7 +865,7 @@ onMounted(async () => {
 
                 <div class="grid grid-cols-[120px_1fr] gap-2 items-center"><label class="text-sm text-slate-400">UID</label><input class="input h-9" :value="selectedItem.uid" readonly /></div>
                 <div class="grid grid-cols-[120px_1fr] gap-2 items-center"><label class="text-sm text-slate-400">Header</label><input class="input h-9" :value="asString(editorDraft.header)" @input="editorDraft.header = ($event.target as HTMLInputElement).value" /></div>
-                <div class="grid grid-cols-[120px_1fr] gap-2 items-start"><label class="text-sm text-slate-400 mt-2">Text</label><textarea class="input min-h-[220px]" :value="asString(editorDraft.text)" @input="editorDraft.text = ($event.target as HTMLTextAreaElement).value" /></div>
+                <div class="grid grid-cols-[120px_1fr] gap-2 items-start"><label class="text-sm text-slate-400 mt-2">Text</label><textarea class="input min-h-[460px] h-[55vh]" :value="asString(editorDraft.text)" @input="editorDraft.text = ($event.target as HTMLTextAreaElement).value" /></div>
                 <div class="grid grid-cols-[120px_1fr] gap-2 items-center"><label class="text-sm text-slate-400">Level</label><input class="input h-9" type="number" step="0.1" :value="asNumber(editorDraft.level, 1)" @input="editorDraft.level = asNumber(($event.target as HTMLInputElement).value, 1)" /></div>
 
                 <details class="border border-slate-800 rounded-md p-2 bg-panel2">
@@ -934,7 +934,7 @@ onMounted(async () => {
             </template>
 
             <template v-else-if="app.currentView === 'batch'">
-              <div class="space-y-3 max-w-5xl">
+              <div class="space-y-3 w-full">
                 <div class="flex items-center gap-2">
                   <label class="text-sm text-slate-400">Document</label>
                   <select class="input h-9 min-w-[180px]" v-model="batchDocPrefix">
