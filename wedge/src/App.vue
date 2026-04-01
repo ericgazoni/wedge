@@ -83,19 +83,28 @@ const flatTree = computed(() => {
   > = [];
 
   for (const d of repo.documentTree) {
-    rows.push({ kind: "doc", key: d.prefix, label: `${d.prefix} (${d.count})` });
+    const visibleItems = d.items.filter((it) => matchesItemFilter(it, q));
+    if (q.trim().length > 0 && visibleItems.length === 0) continue;
+
+    rows.push({ kind: "doc", key: d.prefix, label: `${d.prefix} (${visibleItems.length})` });
     if (!(app.expandedDocs[d.prefix] ?? true)) continue;
 
-    for (const it of d.items) {
+    for (const it of visibleItems) {
       const header = String(it.data.header ?? "");
-      if (matchesItemFilter(it, q)) {
-        rows.push({ kind: "item", uid: it.uid, header, docKey: d.prefix });
-      }
+      rows.push({ kind: "item", uid: it.uid, header, docKey: d.prefix });
     }
   }
 
   return rows;
 });
+
+const visibleDocCount = computed(
+  () => flatTree.value.filter((row) => row.kind === "doc").length,
+);
+
+const visibleItemCount = computed(
+  () => flatTree.value.filter((row) => row.kind === "item").length,
+);
 
 const selectedItem = computed(() => repo.findItem(app.selectedUid));
 const availableDocPrefixes = computed(() =>
@@ -808,7 +817,7 @@ watch(() => keys["/"]?.value, (p, prev) => {
 
       <footer class="bg-panel px-4 flex items-center justify-between text-xs border-t border-slate-800">
         <div class="text-slate-300">branch: - | staged: 0 | modified: 0</div>
-        <div class="text-slate-400">docs: {{ repo.docCount }} | items: {{ repo.itemCount }} | sync: -</div>
+        <div class="text-slate-400">docs: {{ visibleDocCount }} | items: {{ visibleItemCount }} | sync: -</div>
       </footer>
     </div>
   </div>
