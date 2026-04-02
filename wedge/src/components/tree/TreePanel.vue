@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useMagicKeys } from "@vueuse/core";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import { useAppStore } from "../../stores/app";
 import { useRepoStore } from "../../stores/repo";
 import type { DoorstopItem } from "../../types/doorstop";
@@ -26,6 +27,12 @@ const SEARCH_EXCLUDED_FIELDS = new Set(["reviewed", "level"]);
 const flatTreeCursor = ref(0);
 const showActiveOnly = ref(loadPersistedActiveOnly());
 const treeWidth = ref(loadPersistedTreeWidth());
+const contextMenu = ref<{
+  open: boolean;
+  x: number;
+  y: number;
+  uid: string;
+}>({ open: false, x: 0, y: 0, uid: "" });
 
 function clampTreeWidth(next: number): number {
   return Math.max(MIN_TREE_WIDTH, Math.min(MAX_TREE_WIDTH, next));
@@ -194,6 +201,93 @@ function onTreeRowClick(idx: number) {
   }
 }
 
+function closeContextMenu() {
+  contextMenu.value.open = false;
+}
+
+function onWindowPointerDown() {
+  closeContextMenu();
+}
+
+function onWindowEscapeKey(event: KeyboardEvent) {
+  if (event.key === "Escape") closeContextMenu();
+}
+
+function onItemContextMenu(event: MouseEvent, idx: number, uid: string) {
+  event.preventDefault();
+  flatTreeCursor.value = idx;
+  app.selectedUid = uid;
+  contextMenu.value = {
+    open: true,
+    x: event.clientX,
+    y: event.clientY,
+    uid,
+  };
+}
+
+async function toggleItemActiveFromContextMenu() {
+  const uid = contextMenu.value.uid;
+  if (!uid) return;
+
+  const item = repo.findItem(uid);
+  if (!item) {
+    closeContextMenu();
+    return;
+  }
+
+  const nextData = {
+    ...item.data,
+    active: !isItemActive(item),
+  };
+
+  await repo.saveItem(uid, nextData);
+  closeContextMenu();
+}
+
+async function deleteItemFromContextMenu() {
+  const uid = contextMenu.value.uid;
+  if (!uid) return;
+
+  const ok = await confirm(`Delete ${uid}?`, {
+    title: "Delete item",
+    kind: "warning",
+    okLabel: "Delete",
+    cancelLabel: "Cancel",
+  });
+  if (!ok) return;
+
+  const currentDoc = repo.findItem(uid)?.docPrefix ?? "";
+  const deleted = await repo.deleteItem(uid);
+  if (!deleted) {
+    closeContextMenu();
+    return;
+  }
+
+  const fallbackUid =
+    repo.documentTree.find((d) => d.prefix === currentDoc)?.items[0]?.uid ??
+    repo.allItems[0]?.uid ??
+    "";
+
+  if (app.selectedUid === uid) app.selectedUid = fallbackUid;
+  closeContextMenu();
+}
+
+const contextMenuTargetItem = computed(() => repo.findItem(contextMenu.value.uid));
+const contextMenuTargetIsActive = computed(() => {
+  const item = contextMenuTargetItem.value;
+  return item ? isItemActive(item) : false;
+});
+
+onMounted(() => {
+  window.addEventListener("pointerdown", onWindowPointerDown);
+  window.addEventListener("keydown", onWindowEscapeKey);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("pointerdown", onWindowPointerDown);
+  window.removeEventListener("keydown", onWindowEscapeKey);
+});
+
 watch(
   () => flatTree.value.length,
   (len) => {
@@ -260,6 +354,7 @@ watch(() => keys["/"]?.value, (p, prev) => {
                   : 'text-slate-500 pl-6 italic',
             ]"
             @click="onTreeRowClick(idx)"
+            @contextmenu="row.kind === 'item' ? onItemContextMenu($event, idx, row.uid) : undefined"
           >
             <template v-if="row.kind === 'doc'">
               <span class="mr-2 text-slate-500">{{ (app.expandedDocs[row.key] ?? true) ? '▾' : '▸' }}</span>
@@ -277,6 +372,26 @@ watch(() => keys["/"]?.value, (p, prev) => {
           </div>
         </div>
       </div>
+    </div>
+
+    <div
+      v-if="contextMenu.open"
+      class="fixed z-50 min-w-[180px] rounded border border-slate-700 bg-panel2 p-1 shadow-lg"
+      :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
+      @pointerdown.stop
+    >
+      <button
+        class="w-full rounded px-2 py-1 text-left text-sm hover:bg-slate-800"
+        @click="toggleItemActiveFromContextMenu"
+      >
+        Set {{ contextMenuTargetIsActive ? "inactive" : "active" }}
+      </button>
+      <button
+        class="w-full rounded px-2 py-1 text-left text-sm text-red-300 hover:bg-slate-800"
+        @click="deleteItemFromContextMenu"
+      >
+        Delete item
+      </button>
     </div>
 
     <div
