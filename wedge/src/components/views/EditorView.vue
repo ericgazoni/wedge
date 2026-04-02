@@ -103,11 +103,6 @@ const invalidLinkUids = computed(() => {
   return [...missing].sort((a, b) => a.localeCompare(b));
 });
 
-const isDirty = computed(() => {
-  if (!selectedItem.value) return false;
-  return JSON.stringify(editorDraft.value) !== JSON.stringify(selectedItem.value.data);
-});
-
 function asString(value: unknown): string {
   return value == null ? "" : String(value);
 }
@@ -265,11 +260,10 @@ onBeforeUnmount(() => {
 <template>
   <div v-if="!selectedItem" class="text-sm text-slate-500">Select an item from the tree.</div>
   <div v-else class="space-y-3 w-full">
-    <div class="flex items-center gap-2">
-      <button class="btn" :disabled="savingItem" @click="saveCurrentItem('manual')"><span class="kbd mr-2">Ctrl+S</span>Save now</button>
-      <span v-if="savingItem" class="text-xs text-slate-400">Saving...</span>
+    <div class="h-6 flex items-center text-xs" aria-live="polite">
+      <span v-if="savingItem" class="text-slate-400">Saving...</span>
+      <span v-else-if="editorMessage" class="text-slate-300 truncate">{{ editorMessage }}</span>
     </div>
-    <div v-if="editorMessage" class="text-xs text-slate-300 bg-slate-800 border border-slate-700 rounded px-2 py-1">{{ editorMessage }}</div>
 
     <div class="grid grid-cols-[120px_1fr] gap-2 items-center"><label class="text-sm text-slate-400">UID</label><input class="input h-9" :value="selectedItem.uid" readonly /></div>
     <div class="grid grid-cols-[120px_1fr] gap-2 items-center"><label class="text-sm text-slate-400">Header</label><input class="input h-9" :value="asString(editorDraft.header)" @input="editorDraft.header = ($event.target as HTMLInputElement).value" /></div>
