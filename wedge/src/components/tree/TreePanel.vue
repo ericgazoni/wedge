@@ -31,8 +31,10 @@ const contextMenu = ref<{
   open: boolean;
   x: number;
   y: number;
+  target: "doc" | "item" | "";
   uid: string;
-}>({ open: false, x: 0, y: 0, uid: "" });
+  docPrefix: string;
+}>({ open: false, x: 0, y: 0, target: "", uid: "", docPrefix: "" });
 
 function clampTreeWidth(next: number): number {
   return Math.max(MIN_TREE_WIDTH, Math.min(MAX_TREE_WIDTH, next));
@@ -221,8 +223,53 @@ function onItemContextMenu(event: MouseEvent, idx: number, uid: string) {
     open: true,
     x: event.clientX,
     y: event.clientY,
+    target: "item",
     uid,
+    docPrefix: repo.findItem(uid)?.docPrefix ?? "",
   };
+}
+
+function onDocumentContextMenu(event: MouseEvent, idx: number, docPrefix: string) {
+  event.preventDefault();
+  flatTreeCursor.value = idx;
+  contextMenu.value = {
+    open: true,
+    x: event.clientX,
+    y: event.clientY,
+    target: "doc",
+    uid: "",
+    docPrefix,
+  };
+}
+
+async function createItemFromContextMenu() {
+  const docPrefix = contextMenu.value.docPrefix;
+  if (!docPrefix) return;
+
+  const created = await repo.createItem(docPrefix);
+  if (!created) {
+    closeContextMenu();
+    return;
+  }
+
+  app.selectedUid = created.uid;
+  app.currentView = "editor";
+  closeContextMenu();
+}
+
+async function duplicateItemFromContextMenu() {
+  const uid = contextMenu.value.uid;
+  if (!uid) return;
+
+  const created = await repo.duplicateItem(uid);
+  if (!created) {
+    closeContextMenu();
+    return;
+  }
+
+  app.selectedUid = created.uid;
+  app.currentView = "editor";
+  closeContextMenu();
 }
 
 async function toggleItemActiveFromContextMenu() {
@@ -354,7 +401,11 @@ watch(() => keys["/"]?.value, (p, prev) => {
                   : 'text-slate-500 pl-6 italic',
             ]"
             @click="onTreeRowClick(idx)"
-            @contextmenu="row.kind === 'item' ? onItemContextMenu($event, idx, row.uid) : undefined"
+            @contextmenu="
+              row.kind === 'item'
+                ? onItemContextMenu($event, idx, row.uid)
+                : onDocumentContextMenu($event, idx, row.key)
+            "
           >
             <template v-if="row.kind === 'doc'">
               <span class="mr-2 text-slate-500">{{ (app.expandedDocs[row.key] ?? true) ? '▾' : '▸' }}</span>
@@ -381,12 +432,28 @@ watch(() => keys["/"]?.value, (p, prev) => {
       @pointerdown.stop
     >
       <button
+        v-if="contextMenu.target === 'doc'"
+        class="w-full rounded px-2 py-1 text-left text-sm hover:bg-slate-800"
+        @click="createItemFromContextMenu"
+      >
+        New item
+      </button>
+      <button
+        v-if="contextMenu.target === 'item'"
+        class="w-full rounded px-2 py-1 text-left text-sm hover:bg-slate-800"
+        @click="duplicateItemFromContextMenu"
+      >
+        Duplicate item
+      </button>
+      <button
+        v-if="contextMenu.target === 'item'"
         class="w-full rounded px-2 py-1 text-left text-sm hover:bg-slate-800"
         @click="toggleItemActiveFromContextMenu"
       >
         Set {{ contextMenuTargetIsActive ? "inactive" : "active" }}
       </button>
       <button
+        v-if="contextMenu.target === 'item'"
         class="w-full rounded px-2 py-1 text-left text-sm text-red-300 hover:bg-slate-800"
         @click="deleteItemFromContextMenu"
       >

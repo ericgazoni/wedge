@@ -15,9 +15,6 @@ const editorMessage = ref("");
 const savingItem = ref(false);
 
 const selectedItem = computed(() => repo.findItem(app.selectedUid));
-const availableDocPrefixes = computed(() =>
-  repo.documentTree.map((d) => d.prefix).sort((a, b) => a.localeCompare(b)),
-);
 
 const customAttributeEntries = computed(() => {
   const standard = new Set<string>(STANDARD_FIELDS);
@@ -205,25 +202,6 @@ async function saveCurrentItem() {
   }
 }
 
-async function createNewItemInCurrentDoc() {
-  const docPrefix = selectedItem.value?.docPrefix ?? availableDocPrefixes.value[0] ?? "";
-  if (!docPrefix) return;
-  const created = await repo.createItem(docPrefix);
-  if (!created) return;
-  app.selectedUid = created.uid;
-  app.currentView = "editor";
-  editorMessage.value = `Created ${created.uid}.`;
-}
-
-async function duplicateCurrentItem() {
-  if (!selectedItem.value) return;
-  const created = await repo.duplicateItem(selectedItem.value.uid);
-  if (!created) return;
-  app.selectedUid = created.uid;
-  app.currentView = "editor";
-  editorMessage.value = `Duplicated to ${created.uid}.`;
-}
-
 async function deleteCurrentItem() {
   if (!selectedItem.value) return;
   const ok = await confirm(`Delete ${selectedItem.value.uid}?`, {
@@ -261,8 +239,6 @@ watch(
 );
 
 watch(() => keys["Ctrl+S"]?.value, async (p, prev) => p && !prev && app.currentView === "editor" && (await saveCurrentItem()));
-watch(() => keys["Ctrl+N"]?.value, async (p, prev) => p && !prev && app.currentView === "editor" && (await createNewItemInCurrentDoc()));
-watch(() => keys["Ctrl+D"]?.value, async (p, prev) => p && !prev && app.currentView === "editor" && (await duplicateCurrentItem()));
 watch(isDeleteShortcutPressed, async (p, prev) => {
   if (!(p && !prev)) return;
   if (app.currentView !== "editor") return;
@@ -275,8 +251,6 @@ watch(isDeleteShortcutPressed, async (p, prev) => {
   <div v-else class="space-y-3 w-full">
     <div class="flex items-center gap-2">
       <button class="btn" :disabled="!isDirty || savingItem" @click="saveCurrentItem"><span class="kbd mr-2">Ctrl+S</span>Save</button>
-      <button class="btn" @click="createNewItemInCurrentDoc"><span class="kbd mr-2">Ctrl+N</span>New</button>
-      <button class="btn" @click="duplicateCurrentItem"><span class="kbd mr-2">Ctrl+D</span>Duplicate</button>
       <button class="btn" @click="deleteCurrentItem"><span class="kbd mr-2">Ctrl+Delete</span>Delete</button>
     </div>
     <div v-if="editorMessage" class="text-xs text-slate-300 bg-slate-800 border border-slate-700 rounded px-2 py-1">{{ editorMessage }}</div>
