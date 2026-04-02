@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, toRaw, watch } from "vue";
+import { computed, onBeforeUnmount, ref, toRaw, watch } from "vue";
 import { useMagicKeys } from "@vueuse/core";
-import { confirm } from "@tauri-apps/plugin-dialog";
 import { useAppStore } from "../../stores/app";
 import { useRepoStore } from "../../stores/repo";
 import { STANDARD_FIELDS } from "../../types/doorstop";
@@ -13,8 +12,12 @@ const keys = useMagicKeys();
 const editorDraft = ref<Record<string, unknown>>({});
 const editorMessage = ref("");
 const savingItem = ref(false);
-
 const selectedItem = computed(() => repo.findItem(app.selectedUid));
+
+const AUTOSAVE_DELAY_MS = 700;
+const autosaveTimer = ref<number | null>(null);
+const isSyncingDraft = ref(false);
+const lastSavedSnapshot = ref("");
 
 const customAttributeEntries = computed(() => {
   const standard = new Set<string>(STANDARD_FIELDS);
@@ -146,6 +149,27 @@ function resetEditorMessage() {
   editorMessage.value = "";
 }
 
+function getDraftSnapshot(): string {
+  try {
+    return JSON.stringify(editorDraft.value);
+  } catch {
+    return "";
+  }
+}
+
+function clearAutosaveTimer() {
+  if (autosaveTimer.value == null) return;
+  window.clearTimeout(autosaveTimer.value);
+  autosaveTimer.value = null;
+}
+
+function scheduleAutosave() {
+  clearAutosaveTimer();
+  autosaveTimer.value = window.setTimeout(async () => {
+    await saveCurrentItem("auto");
+  }, AUTOSAVE_DELAY_MS);
+}
+
 function safeCloneData<T>(value: T): T {
   const raw = toRaw(value);
   try {
@@ -160,8 +184,13 @@ function safeCloneData<T>(value: T): T {
 }
 
 function syncDraftFromSelection(item = selectedItem.value) {
+  isSyncingDraft.value = true;
   editorDraft.value = item ? safeCloneData(item.data) : {};
+  lastSavedSnapshot.value = getDraftSnapshot();
   resetEditorMessage();
+  queueMicrotask(() => {
+    isSyncingDraft.value = false;
+  });
 }
 
 function addSelectedLink(uid: string) {
@@ -187,14 +216,19 @@ function closeLinkMenuSoon() {
   }, 120);
 }
 
-async function saveCurrentItem() {
+async function saveCurrentItem(mode: "manual" | "auto" = "manual") {
   if (!selectedItem.value || savingItem.value) return;
+
+  const snapshot = getDraftSnapshot();
+  if (snapshot === lastSavedSnapshot.value) return;
+
   savingItem.value = true;
-  resetEditorMessage();
+  if (mode === "manual") resetEditorMessage();
+
   try {
     await repo.saveItem(selectedItem.value.uid, editorDraft.value);
-    editorMessage.value = "Saved.";
-    syncDraftFromSelection();
+    lastSavedSnapshot.value = snapshot;
+    editorMessage.value = mode === "auto" ? "Auto-saved." : "Saved.";
   } catch (error) {
     editorMessage.value = error instanceof Error ? error.message : "Failed to save item.";
   } finally {
@@ -202,47 +236,29 @@ async function saveCurrentItem() {
   }
 }
 
-async function deleteCurrentItem() {
-  if (!selectedItem.value) return;
-  const ok = await confirm(`Delete ${selectedItem.value.uid}?`, {
-    title: "Delete item",
-    kind: "warning",
-    okLabel: "Delete",
-    cancelLabel: "Cancel",
-  });
-  if (!ok) return;
-
-  const currentUid = selectedItem.value.uid;
-  const currentDoc = selectedItem.value.docPrefix;
-  const done = await repo.deleteItem(currentUid);
-  if (!done) return;
-
-  app.selectedUid =
-    repo.documentTree.find((d) => d.prefix === currentDoc)?.items[0]?.uid ?? repo.allItems[0]?.uid ?? "";
-  editorMessage.value = `Deleted ${currentUid}.`;
-}
-
-function isDeleteShortcutPressed(): boolean {
-  return Boolean(
-    keys["Ctrl+Delete"]?.value ||
-      keys["Control+Delete"]?.value ||
-      keys["Ctrl+Backspace"]?.value ||
-      keys["Control+Backspace"]?.value ||
-      keys["Meta+Backspace"]?.value,
-  );
-}
-
 watch(
   () => selectedItem.value,
-  (item) => syncDraftFromSelection(item ?? null),
+  (item) => {
+    clearAutosaveTimer();
+    syncDraftFromSelection(item ?? null);
+  },
   { immediate: true },
 );
 
-watch(() => keys["Ctrl+S"]?.value, async (p, prev) => p && !prev && app.currentView === "editor" && (await saveCurrentItem()));
-watch(isDeleteShortcutPressed, async (p, prev) => {
-  if (!(p && !prev)) return;
-  if (app.currentView !== "editor") return;
-  await deleteCurrentItem();
+watch(
+  () => editorDraft.value,
+  () => {
+    if (app.currentView !== "editor") return;
+    if (!selectedItem.value || isSyncingDraft.value) return;
+    scheduleAutosave();
+  },
+  { deep: true },
+);
+
+watch(() => keys["Ctrl+S"]?.value, async (p, prev) => p && !prev && app.currentView === "editor" && (await saveCurrentItem("manual")));
+
+onBeforeUnmount(() => {
+  clearAutosaveTimer();
 });
 </script>
 
@@ -250,8 +266,8 @@ watch(isDeleteShortcutPressed, async (p, prev) => {
   <div v-if="!selectedItem" class="text-sm text-slate-500">Select an item from the tree.</div>
   <div v-else class="space-y-3 w-full">
     <div class="flex items-center gap-2">
-      <button class="btn" :disabled="!isDirty || savingItem" @click="saveCurrentItem"><span class="kbd mr-2">Ctrl+S</span>Save</button>
-      <button class="btn" @click="deleteCurrentItem"><span class="kbd mr-2">Ctrl+Delete</span>Delete</button>
+      <button class="btn" :disabled="savingItem" @click="saveCurrentItem('manual')"><span class="kbd mr-2">Ctrl+S</span>Save now</button>
+      <span v-if="savingItem" class="text-xs text-slate-400">Saving...</span>
     </div>
     <div v-if="editorMessage" class="text-xs text-slate-300 bg-slate-800 border border-slate-700 rounded px-2 py-1">{{ editorMessage }}</div>
 
