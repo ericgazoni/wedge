@@ -3,6 +3,8 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, LogicalSize, Manager, Size, WindowEvent};
 
+mod git_support;
+
 const WINDOW_STATE_FILE: &str = "window-state.json";
 const MIN_WINDOW_WIDTH: f64 = 900.0;
 const MIN_WINDOW_HEIGHT: f64 = 600.0;
@@ -84,7 +86,14 @@ pub fn run() {
                 persist_window_size(&app_handle, size.width as f64, size.height as f64);
             }
         })
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            git_support::git_clone_project,
+            git_support::git_get_status,
+            git_support::git_startup_refresh,
+            git_support::git_sync,
+            git_support::git_resolve_conflict
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
