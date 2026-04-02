@@ -183,7 +183,8 @@ fn push_options(credentials: Option<&GitCredentials>) -> PushOptions<'static> {
 }
 
 fn open_repo(path: &str) -> Result<Repository, git2::Error> {
-    Repository::open(Path::new(path))
+    // Match git CLI behavior: allow opening from any nested path inside a repo.
+    Repository::discover(Path::new(path)).or_else(|_| Repository::open(Path::new(path)))
 }
 
 fn repo_signature(repo: &Repository) -> Result<Signature<'_>, git2::Error> {
