@@ -151,6 +151,26 @@ async function rememberedCredentialsForRepo(repoPath: string): Promise<GitCreden
   return loadRememberedCredentialsForHost(host);
 }
 
+async function reloadRepositoryModel() {
+  if (!app.repoPath) return;
+
+  const previousSelectedUid = app.selectedUid;
+  await repo.load(app.repoPath);
+
+  if (!repo.repo) {
+    app.selectedUid = "";
+    git.clearState();
+    return;
+  }
+
+  if (previousSelectedUid && repo.findItem(previousSelectedUid)) {
+    app.selectedUid = previousSelectedUid;
+    return;
+  }
+
+  app.selectedUid = repo.allItems[0]?.uid ?? "";
+}
+
 async function loadRepositoryAtPath(path: string): Promise<boolean> {
   const nextPath = path.trim();
   if (!nextPath) return false;
@@ -168,6 +188,9 @@ async function loadRepositoryAtPath(path: string): Promise<boolean> {
   app.addRecentProject(nextPath);
   const credentials = await rememberedCredentialsForRepo(nextPath);
   await git.startupRefresh(nextPath, credentials);
+  if (!git.error) {
+    await reloadRepositoryModel();
+  }
   return true;
 }
 
@@ -339,6 +362,9 @@ async function runSyncNow() {
   await new Promise((resolve) => window.setTimeout(resolve, 140));
   const credentials = await rememberedCredentialsForRepo(app.repoPath);
   await git.runSync(app.repoPath, credentials);
+  if (!git.error) {
+    await reloadRepositoryModel();
+  }
 }
 
 watch(() => keys["Ctrl+O"]?.value, async (p, prev) => p && !prev && (await openRepository()));
