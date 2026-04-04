@@ -187,6 +187,54 @@ fn open_repo(path: &str) -> Result<Repository, git2::Error> {
     Repository::discover(Path::new(path)).or_else(|_| Repository::open(Path::new(path)))
 }
 
+fn normalize_host(raw_host: &str) -> Option<String> {
+    let host = raw_host.trim().trim_matches('[').trim_matches(']').to_lowercase();
+    if host.is_empty() {
+        return None;
+    }
+    Some(host)
+}
+
+fn host_from_authority_or_path(raw: &str) -> Option<String> {
+    let authority = raw.split('/').next().unwrap_or(raw);
+    let no_user = authority.rsplit_once('@').map(|(_, value)| value).unwrap_or(authority);
+
+    // Preserve bracketed IPv6 hosts, otherwise trim optional :port suffix.
+    if no_user.starts_with('[') {
+        let host = no_user.split(']').next().unwrap_or(no_user);
+        return normalize_host(host);
+    }
+
+    let host = no_user.split(':').next().unwrap_or(no_user);
+    normalize_host(host)
+}
+
+fn extract_host_from_remote_url(raw_url: &str) -> Option<String> {
+    let url = raw_url.trim();
+    if url.is_empty() {
+        return None;
+    }
+
+    if let Some((_, after_scheme)) = url.split_once("://") {
+        return host_from_authority_or_path(after_scheme);
+    }
+
+    // SCP-like syntax: git@github.com:org/repo.git
+    if let Some((_, after_user)) = url.rsplit_once('@') {
+        if let Some((host, _)) = after_user.split_once(':') {
+            return normalize_host(host);
+        }
+    }
+
+    host_from_authority_or_path(url)
+}
+
+fn repo_origin_host(repo: &Repository) -> Option<String> {
+    let remote = repo.find_remote("origin").ok()?;
+    let url = remote.url()?;
+    extract_host_from_remote_url(url)
+}
+
 fn repo_signature(repo: &Repository) -> Result<Signature<'_>, git2::Error> {
     match repo.signature() {
         Ok(sig) => Ok(sig),
@@ -600,6 +648,12 @@ pub fn git_startup_refresh(input: RepoPathInput) -> StatusResult {
             error: Some(map_error(&error)),
         },
     }
+}
+
+#[tauri::command]
+pub fn git_get_origin_host(input: RepoPathInput) -> Option<String> {
+    let repo = open_repo(&input.repo_path).ok()?;
+    repo_origin_host(&repo)
 }
 
 #[tauri::command]

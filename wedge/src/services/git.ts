@@ -35,6 +35,10 @@ export async function gitStartupRefresh(input: RepoPathInput): Promise<GitStatus
   return invoke<GitStatusResult>("git_startup_refresh", { input });
 }
 
+export async function gitGetOriginHost(input: RepoPathInput): Promise<string | null> {
+  return invoke<string | null>("git_get_origin_host", { input });
+}
+
 export async function gitSync(input: RepoPathInput): Promise<GitSyncResult> {
   return invoke<GitSyncResult>("git_sync", { input });
 }

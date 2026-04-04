@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useMagicKeys } from "@vueuse/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { exists } from "@tauri-apps/plugin-fs";
 import { useAppStore } from "./stores/app";
 import { useRepoStore } from "./stores/repo";
 import { useGitStore } from "./stores/git";
+import { gitGetOriginHost } from "./services/git";
 import type { GitCredentials } from "./types/git";
 import AppHeader from "./components/layout/AppHeader.vue";
 import AppFooter from "./components/layout/AppFooter.vue";
@@ -34,7 +36,16 @@ const joinPassword = ref("");
 const joinRememberMe = ref(true);
 const joinError = ref("");
 
+const gitSettingsDialogOpen = ref(false);
+const gitSettingsHost = ref("");
+const gitSettingsUsername = ref("");
+const gitSettingsPassword = ref("");
+const gitSettingsError = ref("");
+
+let unlistenMenuAction: (() => void) | null = null;
+
 const CREDENTIALS_STORAGE_KEY = "wedge.gitCredentialsByHost";
+const APP_MENU_EVENT_NAME = "wedge://menu-action";
 
 const viewLabel = computed(() =>
   app.currentView === "editor" ? "Editor" : app.currentView === "batch" ? "Batch" : "Git",
@@ -68,35 +79,76 @@ function credentialsHost(rawUrl: string): string {
   }
 }
 
-function loadRememberedCredentials(rawUrl: string): GitCredentials | undefined {
-  if (typeof window === "undefined") return undefined;
-  const host = credentialsHost(rawUrl);
-  if (!host) return undefined;
+function normalizeHost(rawHost: string): string {
+  const trimmed = rawHost.trim();
+  if (!trimmed) return "";
   try {
-    const raw = window.localStorage.getItem(CREDENTIALS_STORAGE_KEY);
-    if (!raw) return undefined;
-    const parsed = JSON.parse(raw) as Record<string, { username: string; password: string }>;
-    const hit = parsed[host];
-    if (!hit) return undefined;
-    return { username: hit.username, password: hit.password, remember: true };
+    const withProtocol = trimmed.includes("://") ? trimmed : `https://${trimmed}`;
+    return new URL(withProtocol).host.toLowerCase();
   } catch {
-    return undefined;
+    return trimmed.split("/")[0]?.toLowerCase() ?? "";
   }
 }
 
-function persistRememberedCredentials(rawUrl: string, credentials: GitCredentials) {
-  if (typeof window === "undefined") return;
-  if (!credentials.remember) return;
-  const host = credentialsHost(rawUrl);
-  if (!host) return;
+function readStoredCredentialsByHost(): Record<string, { username: string; password: string }> {
+  if (typeof window === "undefined") return {};
   try {
     const raw = window.localStorage.getItem(CREDENTIALS_STORAGE_KEY);
-    const parsed = raw ? (JSON.parse(raw) as Record<string, { username: string; password: string }>) : {};
-    parsed[host] = { username: credentials.username, password: credentials.password };
-    window.localStorage.setItem(CREDENTIALS_STORAGE_KEY, JSON.stringify(parsed));
+    return raw ? (JSON.parse(raw) as Record<string, { username: string; password: string }>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredCredentialsByHost(data: Record<string, { username: string; password: string }>) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(CREDENTIALS_STORAGE_KEY, JSON.stringify(data));
   } catch {
     // Ignore local persistence failure.
   }
+}
+
+function loadRememberedCredentialsForHost(rawHost: string): GitCredentials | undefined {
+  const host = normalizeHost(rawHost);
+  if (!host) return undefined;
+  const parsed = readStoredCredentialsByHost();
+  const hit = parsed[host];
+  if (!hit) return undefined;
+  return { username: hit.username, password: hit.password, remember: true };
+}
+
+function persistRememberedCredentialsForHost(rawHost: string, credentials: GitCredentials) {
+  if (!credentials.remember) return;
+  const host = normalizeHost(rawHost);
+  if (!host) return;
+  const parsed = readStoredCredentialsByHost();
+  parsed[host] = { username: credentials.username, password: credentials.password };
+  writeStoredCredentialsByHost(parsed);
+}
+
+function clearRememberedCredentialsForHost(rawHost: string) {
+  const host = normalizeHost(rawHost);
+  if (!host) return;
+  const parsed = readStoredCredentialsByHost();
+  delete parsed[host];
+  writeStoredCredentialsByHost(parsed);
+}
+
+function loadRememberedCredentials(rawUrl: string): GitCredentials | undefined {
+  const host = credentialsHost(rawUrl);
+  return loadRememberedCredentialsForHost(host);
+}
+
+function persistRememberedCredentials(rawUrl: string, credentials: GitCredentials) {
+  const host = credentialsHost(rawUrl);
+  persistRememberedCredentialsForHost(host, credentials);
+}
+
+async function rememberedCredentialsForRepo(repoPath: string): Promise<GitCredentials | undefined> {
+  const host = await gitGetOriginHost({ repoPath }).catch(() => null);
+  if (!host) return undefined;
+  return loadRememberedCredentialsForHost(host);
 }
 
 async function loadRepositoryAtPath(path: string): Promise<boolean> {
@@ -114,7 +166,8 @@ async function loadRepositoryAtPath(path: string): Promise<boolean> {
 
   app.selectedUid = repo.allItems[0]?.uid ?? "";
   app.addRecentProject(nextPath);
-  await git.startupRefresh(nextPath);
+  const credentials = await rememberedCredentialsForRepo(nextPath);
+  await git.startupRefresh(nextPath, credentials);
   return true;
 }
 
@@ -162,6 +215,11 @@ function openJoinDialog() {
   joinUsername.value = "";
   joinPassword.value = "";
   joinDestination.value = app.repoPath || repoNameFromUrl(joinUrl.value || "");
+}
+
+function openRemoteRepositoryDialog() {
+  joinUrl.value = "";
+  openJoinDialog();
 }
 
 function closeJoinDialog() {
@@ -212,11 +270,75 @@ async function downloadSharedProject() {
   }
 }
 
+async function openGitSettingsDialog(prefilledHost?: string) {
+  gitSettingsDialogOpen.value = true;
+  gitSettingsError.value = "";
+  gitSettingsHost.value = normalizeHost(prefilledHost ?? "");
+  const remembered = loadRememberedCredentialsForHost(gitSettingsHost.value);
+  gitSettingsUsername.value = remembered?.username ?? "";
+  gitSettingsPassword.value = remembered?.password ?? "";
+
+  if (!gitSettingsHost.value && app.repoPath) {
+    const repoHost = await gitGetOriginHost({ repoPath: app.repoPath }).catch(() => null);
+    if (repoHost) {
+      gitSettingsHost.value = normalizeHost(repoHost);
+      const fromRepo = loadRememberedCredentialsForHost(gitSettingsHost.value);
+      gitSettingsUsername.value = fromRepo?.username ?? "";
+      gitSettingsPassword.value = fromRepo?.password ?? "";
+    }
+  }
+}
+
+function closeGitSettingsDialog() {
+  gitSettingsDialogOpen.value = false;
+  gitSettingsError.value = "";
+}
+
+function normalizeGitSettingsHostInPlace() {
+  gitSettingsHost.value = normalizeHost(gitSettingsHost.value);
+  const remembered = loadRememberedCredentialsForHost(gitSettingsHost.value);
+  if (remembered) {
+    gitSettingsUsername.value = remembered.username;
+    gitSettingsPassword.value = remembered.password;
+  }
+}
+
+function saveGitSettings() {
+  const host = normalizeHost(gitSettingsHost.value);
+  const username = gitSettingsUsername.value.trim();
+  const password = gitSettingsPassword.value;
+
+  if (!host) {
+    gitSettingsError.value = "Enter a valid host (for example: github.com).";
+    return;
+  }
+  if (!username || !password) {
+    gitSettingsError.value = "Username and password are required.";
+    return;
+  }
+
+  persistRememberedCredentialsForHost(host, { username, password, remember: true });
+  closeGitSettingsDialog();
+}
+
+function clearGitSettings() {
+  const host = normalizeHost(gitSettingsHost.value);
+  if (!host) {
+    gitSettingsError.value = "Enter a host to remove saved credentials.";
+    return;
+  }
+  clearRememberedCredentialsForHost(host);
+  gitSettingsUsername.value = "";
+  gitSettingsPassword.value = "";
+  gitSettingsError.value = "";
+}
+
 async function runSyncNow() {
   if (!app.repoPath) return;
   window.dispatchEvent(new Event("wedge:save-now"));
   await new Promise((resolve) => window.setTimeout(resolve, 140));
-  await git.runSync(app.repoPath);
+  const credentials = await rememberedCredentialsForRepo(app.repoPath);
+  await git.runSync(app.repoPath, credentials);
 }
 
 watch(() => keys["Ctrl+O"]?.value, async (p, prev) => p && !prev && (await openRepository()));
@@ -231,7 +353,23 @@ watch(() => keys["Escape"]?.value, (p, prev) => {
 });
 
 onMounted(async () => {
+  unlistenMenuAction = await listen<{ action?: string }>(APP_MENU_EVENT_NAME, async (event) => {
+    if (event.payload?.action === "open-remote-repository") {
+      openRemoteRepositoryDialog();
+      return;
+    }
+    if (event.payload?.action === "configure-git-settings") {
+      await openGitSettingsDialog();
+    }
+  });
   await tryOpenLatestRepositoryOnStartup();
+});
+
+onBeforeUnmount(() => {
+  if (unlistenMenuAction) {
+    unlistenMenuAction();
+    unlistenMenuAction = null;
+  }
 });
 </script>
 
@@ -265,7 +403,7 @@ onMounted(async () => {
           :recent-projects="app.recentProjects"
           :cloning="joiningProject"
           @open-local="openRepository"
-          @join-shared="openJoinDialog"
+          @join-shared="openRemoteRepositoryDialog"
           @open-recent="loadRepositoryAtPath"
           @remove-recent="app.removeRecentProject"
         />
@@ -328,6 +466,42 @@ onMounted(async () => {
           <button class="btn" :disabled="!canDownloadShared || joiningProject" @click="downloadSharedProject">
             {{ joiningProject ? "Downloading..." : joinAuthNeeded ? "Connect" : "Download" }}
           </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="gitSettingsDialogOpen" class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4">
+      <div class="panel w-full max-w-lg p-4 space-y-4" @pointerdown.stop>
+        <div class="text-lg font-semibold">Configure Git settings</div>
+
+        <div class="space-y-1">
+          <label class="text-sm text-slate-400">Host</label>
+          <input
+            v-model="gitSettingsHost"
+            class="input w-full h-9"
+            placeholder="github.com"
+            @blur="normalizeGitSettingsHostInPlace"
+          />
+        </div>
+
+        <div class="space-y-1">
+          <label class="text-sm text-slate-400">Username or email</label>
+          <input v-model="gitSettingsUsername" class="input w-full h-9" />
+        </div>
+
+        <div class="space-y-1">
+          <label class="text-sm text-slate-400">Password or access token</label>
+          <input v-model="gitSettingsPassword" type="password" class="input w-full h-9" />
+        </div>
+
+        <div v-if="gitSettingsError" class="text-sm text-red-300">{{ gitSettingsError }}</div>
+
+        <div class="flex justify-between gap-2">
+          <button class="btn" @click="clearGitSettings">Remove saved credentials</button>
+          <div class="flex gap-2">
+            <button class="btn" @click="closeGitSettingsDialog">Cancel</button>
+            <button class="btn" @click="saveGitSettings">Save</button>
+          </div>
         </div>
       </div>
     </div>
