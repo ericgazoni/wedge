@@ -16,31 +16,30 @@ Wedge focuses on that gap:
 
 ## What Wedge currently supports
 
-The feature set below reflects the current implementation in this repository.
+The feature set below reflects the current implementation:
 
 - Open or join projects
   - Open an existing local repository folder.
-  - Join a shared project by downloading from an HTTPS URL.
-  - Keep a recent-project list for quick reopen.
+  - Join a shared project by git-sync via HTTPS URL (no SSH support yet).
+  - Automatically re-open last used project.
 - Doorstop repository scanning
   - Recursively finds Doorstop document directories via `.doorstop.yml` / `.doorstop.yaml`.
-  - Skips common non-project folders (for example `.git`, `node_modules`, `target`, `dist`).
   - Loads item files from YAML and Markdown formats.
 - Editor workflow
   - Edit core fields (`header`, `text`, `level`, `active`, `derived`, `normative`, `ref`, `links`).
   - Edit custom attributes beyond the standard Doorstop fields.
-  - Auto-save while editing and manual save hook before sync.
+  - Auto-save while editing.
   - Link picker with search and invalid-link detection.
 - Tree and item management
-  - Search/filter tree content across item fields.
-  - Optional "active only" filtering.
+  - Global search content across item fields.
+  - Filtering "active only" items.
   - Context actions to create, duplicate, activate/deactivate, and delete items.
   - Resizable tree panel and keyboard navigation.
 - Batch creation
   - Create multiple child items quickly from one view.
-  - Set per-row metadata (`text`, `ref`, `level`, flags) before saving.
-  - Optionally pre-link newly created items to a selected source item.
-- Sync and conflict handling
+  - Set per-row metadata (`text`, `ref`, `level`, ...) before saving.
+  - Link newly created items to a selected source item.
+- Collaboration via Git and conflict handling
   - "Sync now" workflow with status indicator and periodic background refresh.
   - Startup refresh and branch/status visibility.
   - Conflict resolution options: keep mine, keep theirs, or abort.
@@ -49,6 +48,16 @@ The feature set below reflects the current implementation in this repository.
 ## Doorstop ecosystem references
 
 [Doorstop's official examples page](https://doorstop.readthedocs.io/en/latest/examples.html) lists other third-party clients as well:
+
+- [sevendays/doorhole](https://github.com/sevendays/doorhole)
+- [ownbee/doorstop-edit](https://github.com/ownbee/doorstop-edit)
+
+## Requirements
+
+- A local folder for your Doorstop project repository.
+- Optional: an HTTPS remote repository URL if you want to sync with a shared server.
+
+Using Wedge with an existing repository? See [`manual/git-project-setup.md`](manual/git-project-setup.md).
 
 ## Tech stack
 
