@@ -7,9 +7,10 @@ import {
   gitStartupRefresh,
   gitSync,
 } from "../services/git";
-import type { GitCommandError, GitCredentials, GitStatus } from "../types/git";
+import type { GitCommandError, GitCredentials, GitIdentity, GitStatus } from "../types/git";
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
+const IDENTITY_STORAGE_KEY = "wedge.gitIdentity";
 
 export const useGitStore = defineStore("git", () => {
   const status = ref<GitStatus | null>(null);
@@ -50,6 +51,21 @@ export const useGitStore = defineStore("git", () => {
     }
   }
 
+  function loadStoredIdentity(): GitIdentity | undefined {
+    if (typeof window === "undefined") return undefined;
+    try {
+      const raw = window.localStorage.getItem(IDENTITY_STORAGE_KEY);
+      if (!raw) return undefined;
+      const parsed = JSON.parse(raw) as Partial<GitIdentity>;
+      const name = parsed.name?.trim() ?? "";
+      const email = parsed.email?.trim() ?? "";
+      if (!name || !email) return undefined;
+      return { name, email };
+    } catch {
+      return undefined;
+    }
+  }
+
   function stopPolling() {
     if (pollTimer.value == null) return;
     window.clearInterval(pollTimer.value);
@@ -87,7 +103,7 @@ export const useGitStore = defineStore("git", () => {
     error.value = null;
 
     try {
-      const result = await gitSync({ repoPath, credentials });
+      const result = await gitSync({ repoPath, credentials, identity: loadStoredIdentity() });
       applyStatus(result.status);
       conflictingFiles.value = result.conflictingFiles;
       error.value = result.error;
@@ -106,7 +122,12 @@ export const useGitStore = defineStore("git", () => {
   ) {
     syncing.value = true;
     try {
-      const result = await gitResolveConflict({ repoPath, strategy, credentials });
+      const result = await gitResolveConflict({
+        repoPath,
+        strategy,
+        credentials,
+        identity: loadStoredIdentity(),
+      });
       applyStatus(result.status);
       conflictingFiles.value = result.conflictingFiles;
       error.value = result.error;

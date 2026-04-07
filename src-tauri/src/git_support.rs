@@ -28,6 +28,7 @@ pub struct CloneProjectInput {
 pub struct RepoPathInput {
     pub repo_path: String,
     pub credentials: Option<GitCredentials>,
+    pub identity: Option<GitIdentityDto>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -36,6 +37,7 @@ pub struct ResolveConflictInput {
     pub repo_path: String,
     pub strategy: String,
     pub credentials: Option<GitCredentials>,
+    pub identity: Option<GitIdentityDto>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -44,6 +46,13 @@ pub struct GitStatusDto {
     pub branch: String,
     pub local_change_count: usize,
     pub updates_available: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitIdentityDto {
+    pub name: String,
+    pub email: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -235,7 +244,50 @@ fn repo_origin_host(repo: &Repository) -> Option<String> {
     extract_host_from_remote_url(url)
 }
 
-fn repo_signature(repo: &Repository) -> Result<Signature<'_>, git2::Error> {
+fn validate_git_identity(name: &str, email: &str) -> Result<(), String> {
+    if name.trim().is_empty() {
+        return Err("Name is required.".to_string());
+    }
+
+    let email = email.trim();
+    if email.is_empty() {
+        return Err("Email is required.".to_string());
+    }
+    if email.contains(char::is_whitespace) {
+        return Err("Email cannot contain spaces.".to_string());
+    }
+
+    let Some((local, domain)) = email.split_once('@') else {
+        return Err("Enter a valid email address.".to_string());
+    };
+
+    if local.is_empty() || domain.is_empty() || !domain.contains('.') {
+        return Err("Enter a valid email address.".to_string());
+    }
+
+    Ok(())
+}
+
+fn normalized_identity(identity: Option<&GitIdentityDto>) -> Option<GitIdentityDto> {
+    let identity = identity?;
+    if validate_git_identity(&identity.name, &identity.email).is_err() {
+        return None;
+    }
+
+    Some(GitIdentityDto {
+        name: identity.name.trim().to_string(),
+        email: identity.email.trim().to_string(),
+    })
+}
+
+fn repo_signature<'a>(
+    repo: &'a Repository,
+    preferred_identity: Option<&'a GitIdentityDto>,
+) -> Result<Signature<'a>, git2::Error> {
+    if let Some(identity) = preferred_identity {
+        return Signature::now(identity.name.trim(), identity.email.trim());
+    }
+
     match repo.signature() {
         Ok(sig) => Ok(sig),
         Err(_) => Signature::now("Wedge", "wedge@local"),
@@ -366,7 +418,12 @@ fn stage_all(repo: &Repository) -> Result<Oid, git2::Error> {
     index.write_tree()
 }
 
-fn commit_if_needed(repo: &Repository, tree_id: Oid, message: &str) -> Result<bool, git2::Error> {
+fn commit_if_needed(
+    repo: &Repository,
+    tree_id: Oid,
+    message: &str,
+    identity: Option<&GitIdentityDto>,
+) -> Result<bool, git2::Error> {
     let tree = repo.find_tree(tree_id)?;
 
     if let Ok(head) = repo.head() {
@@ -375,12 +432,12 @@ fn commit_if_needed(repo: &Repository, tree_id: Oid, message: &str) -> Result<bo
             return Ok(false);
         }
 
-        let sig = repo_signature(repo)?;
+        let sig = repo_signature(repo, identity)?;
         repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent])?;
         return Ok(true);
     }
 
-    let sig = repo_signature(repo)?;
+    let sig = repo_signature(repo, identity)?;
     repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[])?;
     Ok(true)
 }
@@ -403,7 +460,11 @@ fn fast_forward_to(repo: &Repository, branch: &str, target_oid: Oid) -> Result<(
     Ok(())
 }
 
-fn merge_remote(repo: &Repository, branch: &str) -> Result<Vec<String>, git2::Error> {
+fn merge_remote(
+    repo: &Repository,
+    branch: &str,
+    identity: Option<&GitIdentityDto>,
+) -> Result<Vec<String>, git2::Error> {
     let remote_ref_name = format!("refs/remotes/origin/{}", branch);
     let remote_ref = repo.find_reference(&remote_ref_name)?;
     let remote_annotated = repo.reference_to_annotated_commit(&remote_ref)?;
@@ -442,7 +503,7 @@ fn merge_remote(repo: &Repository, branch: &str) -> Result<Vec<String>, git2::Er
 
         let tree_id = index.write_tree_to(repo)?;
         let tree = repo.find_tree(tree_id)?;
-        let sig = repo_signature(repo)?;
+        let sig = repo_signature(repo, identity)?;
 
         let head_commit = repo.head()?.peel_to_commit()?;
         let remote_commit = repo.find_commit(remote_annotated.id())?;
@@ -472,7 +533,11 @@ fn push_branch(repo: &Repository, branch: &str, credentials: Option<&GitCredenti
     Ok(())
 }
 
-fn resolve_merge_conflicts(repo: &Repository, strategy: &str) -> Result<Vec<String>, git2::Error> {
+fn resolve_merge_conflicts(
+    repo: &Repository,
+    strategy: &str,
+    identity: Option<&GitIdentityDto>,
+) -> Result<Vec<String>, git2::Error> {
     let mut index = repo.index()?;
     if !index.has_conflicts() {
         return Ok(vec![]);
@@ -512,7 +577,7 @@ fn resolve_merge_conflicts(repo: &Repository, strategy: &str) -> Result<Vec<Stri
 
     let tree_id = index.write_tree_to(repo)?;
     let tree = repo.find_tree(tree_id)?;
-    let sig = repo_signature(repo)?;
+    let sig = repo_signature(repo, identity)?;
 
     let head_commit = repo.head()?.peel_to_commit()?;
     let merge_head_oid = repo.refname_to_id("MERGE_HEAD")?;
@@ -690,6 +755,8 @@ pub fn git_sync(input: RepoPathInput) -> SyncResult {
         }
     };
 
+    let configured_identity = normalized_identity(input.identity.as_ref());
+
     let changed_uids = collect_changed_uids(&repo).unwrap_or_default();
     let tree_id = match stage_all(&repo) {
         Ok(tree_id) => tree_id,
@@ -708,7 +775,7 @@ pub fn git_sync(input: RepoPathInput) -> SyncResult {
     };
 
     let message = auto_commit_message(&changed_uids);
-    if let Err(error) = commit_if_needed(&repo, tree_id, &message) {
+    if let Err(error) = commit_if_needed(&repo, tree_id, &message, configured_identity.as_ref()) {
         return SyncResult {
             outcome: "failed".to_string(),
             status: GitStatusDto {
@@ -734,7 +801,7 @@ pub fn git_sync(input: RepoPathInput) -> SyncResult {
         };
     }
 
-    let conflicts = match merge_remote(&repo, &branch) {
+    let conflicts = match merge_remote(&repo, &branch, configured_identity.as_ref()) {
         Ok(conflicts) => conflicts,
         Err(error) => {
             return SyncResult {
@@ -834,7 +901,9 @@ pub fn git_resolve_conflict(input: ResolveConflictInput) -> SyncResult {
         "theirs"
     };
 
-    let remaining = match resolve_merge_conflicts(&repo, strategy) {
+    let configured_identity = normalized_identity(input.identity.as_ref());
+
+    let remaining = match resolve_merge_conflicts(&repo, strategy, configured_identity.as_ref()) {
         Ok(remaining) => remaining,
         Err(error) => {
             return SyncResult {

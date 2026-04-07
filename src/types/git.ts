@@ -4,6 +4,11 @@ export type GitCredentials = {
   remember: boolean;
 };
 
+export type GitIdentity = {
+  name: string;
+  email: string;
+};
+
 export type GitStatus = {
   branch: string;
   localChangeCount: number;

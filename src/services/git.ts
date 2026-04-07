@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   GitCloneResult,
   GitCredentials,
+  GitIdentity,
   GitStatusResult,
   GitSyncResult,
 } from "../types/git";
@@ -9,12 +10,14 @@ import type {
 type RepoPathInput = {
   repoPath: string;
   credentials?: GitCredentials;
+  identity?: GitIdentity;
 };
 
 type ResolveConflictInput = {
   repoPath: string;
   strategy: "mine" | "theirs" | "abort";
   credentials?: GitCredentials;
+  identity?: GitIdentity;
 };
 
 type CloneProjectInput = {
@@ -38,6 +41,7 @@ export async function gitStartupRefresh(input: RepoPathInput): Promise<GitStatus
 export async function gitGetOriginHost(input: RepoPathInput): Promise<string | null> {
   return invoke<string | null>("git_get_origin_host", { input });
 }
+
 
 export async function gitSync(input: RepoPathInput): Promise<GitSyncResult> {
   return invoke<GitSyncResult>("git_sync", { input });

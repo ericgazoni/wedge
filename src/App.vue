@@ -8,7 +8,7 @@ import { useAppStore } from "./stores/app";
 import { useRepoStore } from "./stores/repo";
 import { useGitStore } from "./stores/git";
 import { gitGetOriginHost } from "./services/git";
-import type { GitCredentials } from "./types/git";
+import type { GitCredentials, GitIdentity } from "./types/git";
 import AppHeader from "./components/layout/AppHeader.vue";
 import AppFooter from "./components/layout/AppFooter.vue";
 import TreePanel from "./components/tree/TreePanel.vue";
@@ -40,11 +40,14 @@ const gitSettingsDialogOpen = ref(false);
 const gitSettingsHost = ref("");
 const gitSettingsUsername = ref("");
 const gitSettingsPassword = ref("");
+const gitSettingsCommitName = ref("");
+const gitSettingsCommitEmail = ref("");
 const gitSettingsError = ref("");
 
 let unlistenMenuAction: (() => void) | null = null;
 
 const CREDENTIALS_STORAGE_KEY = "wedge.gitCredentialsByHost";
+const GIT_IDENTITY_STORAGE_KEY = "wedge.gitIdentity";
 const APP_MENU_EVENT_NAME = "wedge://menu-action";
 
 const viewLabel = computed(() =>
@@ -90,6 +93,13 @@ function normalizeHost(rawHost: string): string {
   }
 }
 
+function isValidEmail(value: string): boolean {
+  if (!value || /\s/.test(value)) return false;
+  const at = value.indexOf("@");
+  if (at <= 0 || at === value.length - 1) return false;
+  return value.slice(at + 1).includes(".");
+}
+
 function readStoredCredentialsByHost(): Record<string, { username: string; password: string }> {
   if (typeof window === "undefined") return {};
   try {
@@ -104,6 +114,30 @@ function writeStoredCredentialsByHost(data: Record<string, { username: string; p
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(CREDENTIALS_STORAGE_KEY, JSON.stringify(data));
+  } catch {
+    // Ignore local persistence failure.
+  }
+}
+
+function readStoredGitIdentity(): GitIdentity | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = window.localStorage.getItem(GIT_IDENTITY_STORAGE_KEY);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as Partial<GitIdentity>;
+    const name = parsed.name?.trim() ?? "";
+    const email = parsed.email?.trim() ?? "";
+    if (!name || !email) return undefined;
+    return { name, email };
+  } catch {
+    return undefined;
+  }
+}
+
+function writeStoredGitIdentity(identity: GitIdentity) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(GIT_IDENTITY_STORAGE_KEY, JSON.stringify(identity));
   } catch {
     // Ignore local persistence failure.
   }
@@ -301,6 +335,10 @@ async function openGitSettingsDialog(prefilledHost?: string) {
   gitSettingsUsername.value = remembered?.username ?? "";
   gitSettingsPassword.value = remembered?.password ?? "";
 
+  const identity = readStoredGitIdentity();
+  gitSettingsCommitName.value = identity?.name ?? "";
+  gitSettingsCommitEmail.value = identity?.email ?? "";
+
   if (!gitSettingsHost.value && app.repoPath) {
     const repoHost = await gitGetOriginHost({ repoPath: app.repoPath }).catch(() => null);
     if (repoHost) {
@@ -326,21 +364,40 @@ function normalizeGitSettingsHostInPlace() {
   }
 }
 
-function saveGitSettings() {
+async function saveGitSettings() {
+  const commitName = gitSettingsCommitName.value.trim();
+  const commitEmail = gitSettingsCommitEmail.value.trim();
   const host = normalizeHost(gitSettingsHost.value);
   const username = gitSettingsUsername.value.trim();
   const password = gitSettingsPassword.value;
+  const hasAnyCredentialInput = !!host || !!username || !!password;
 
-  if (!host) {
-    gitSettingsError.value = "Enter a valid host (for example: github.com).";
+  if (!commitName) {
+    gitSettingsError.value = "Enter the name to use for synced commits.";
     return;
   }
-  if (!username || !password) {
-    gitSettingsError.value = "Username and password are required.";
+  if (!isValidEmail(commitEmail)) {
+    gitSettingsError.value = "Enter a valid commit email address.";
     return;
   }
 
-  persistRememberedCredentialsForHost(host, { username, password, remember: true });
+  if (hasAnyCredentialInput) {
+    if (!host) {
+      gitSettingsError.value = "Enter a valid host (for example: github.com).";
+      return;
+    }
+    if (!username || !password) {
+      gitSettingsError.value = "Username and password are required when saving credentials.";
+      return;
+    }
+  }
+
+  writeStoredGitIdentity({ name: commitName, email: commitEmail });
+
+  if (hasAnyCredentialInput) {
+    persistRememberedCredentialsForHost(host, { username, password, remember: true });
+  }
+
   closeGitSettingsDialog();
 }
 
@@ -499,6 +556,22 @@ onBeforeUnmount(() => {
     <div v-if="gitSettingsDialogOpen" class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4">
       <div class="panel w-full max-w-lg p-4 space-y-4" @pointerdown.stop>
         <div class="text-lg font-semibold">Configure Git settings</div>
+
+        <div class="space-y-1">
+          <label class="text-sm text-slate-400">Commit name</label>
+          <input v-model="gitSettingsCommitName" class="input w-full h-9" placeholder="Jane Doe" />
+        </div>
+
+        <div class="space-y-1">
+          <label class="text-sm text-slate-400">Commit email</label>
+          <input v-model="gitSettingsCommitEmail" class="input w-full h-9" placeholder="jane@example.com" />
+        </div>
+
+        <div class="text-xs text-slate-400 border border-slate-700 rounded p-2">
+          Used as author identity for Wedge sync commits.
+        </div>
+
+        <div class="text-sm text-slate-300 font-medium">Repository login (optional)</div>
 
         <div class="space-y-1">
           <label class="text-sm text-slate-400">Host</label>
