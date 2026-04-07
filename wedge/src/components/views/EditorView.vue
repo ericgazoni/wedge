@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, toRaw, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from "vue";
 import { useMagicKeys } from "@vueuse/core";
 import { useAppStore } from "../../stores/app";
 import { useRepoStore } from "../../stores/repo";
@@ -231,6 +231,10 @@ async function saveCurrentItem(mode: "manual" | "auto" = "manual") {
   }
 }
 
+function onGlobalSaveNow() {
+  void saveCurrentItem("manual");
+}
+
 watch(
   () => selectedItem.value,
   (item) => {
@@ -252,8 +256,13 @@ watch(
 
 watch(() => keys["Ctrl+S"]?.value, async (p, prev) => p && !prev && app.currentView === "editor" && (await saveCurrentItem("manual")));
 
+onMounted(() => {
+  window.addEventListener("wedge:save-now", onGlobalSaveNow);
+});
+
 onBeforeUnmount(() => {
   clearAutosaveTimer();
+  window.removeEventListener("wedge:save-now", onGlobalSaveNow);
 });
 </script>
 

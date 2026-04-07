@@ -1,11 +1,23 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, LogicalSize, Manager, Size, WindowEvent};
+use tauri::menu::{Menu, SubmenuBuilder};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, Size, WindowEvent};
+
+mod git_support;
 
 const WINDOW_STATE_FILE: &str = "window-state.json";
 const MIN_WINDOW_WIDTH: f64 = 900.0;
 const MIN_WINDOW_HEIGHT: f64 = 600.0;
+const APP_MENU_EVENT_NAME: &str = "wedge://menu-action";
+const MENU_OPEN_REMOTE_REPOSITORY_ID: &str = "menu.open_remote_repository";
+const MENU_CONFIGURE_GIT_SETTINGS_ID: &str = "menu.configure_git_settings";
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppMenuAction {
+    action: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredWindowState {
@@ -49,6 +61,16 @@ fn persist_window_size(app: &AppHandle, width: f64, height: f64) {
     }
 }
 
+fn build_app_menu<R: tauri::Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let menu = Menu::default(app)?;
+    let git_menu = SubmenuBuilder::new(app, "Git")
+        .text(MENU_OPEN_REMOTE_REPOSITORY_ID, "Open Remote Repository...")
+        .text(MENU_CONFIGURE_GIT_SETTINGS_ID, "Configure Git Settings...")
+        .build()?;
+    menu.append(&git_menu)?;
+    Ok(menu)
+}
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -58,6 +80,7 @@ fn greet(name: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .menu(build_app_menu)
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
@@ -84,7 +107,31 @@ pub fn run() {
                 persist_window_size(&app_handle, size.width as f64, size.height as f64);
             }
         })
-        .invoke_handler(tauri::generate_handler![greet])
+        .on_menu_event(|app, event| {
+            let action = match event.id().as_ref() {
+                MENU_OPEN_REMOTE_REPOSITORY_ID => Some("open-remote-repository"),
+                MENU_CONFIGURE_GIT_SETTINGS_ID => Some("configure-git-settings"),
+                _ => None,
+            };
+
+            if let Some(action) = action {
+                let _ = app.emit(
+                    APP_MENU_EVENT_NAME,
+                    AppMenuAction {
+                        action: action.to_string(),
+                    },
+                );
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            git_support::git_clone_project,
+            git_support::git_get_status,
+            git_support::git_get_origin_host,
+            git_support::git_startup_refresh,
+            git_support::git_sync,
+            git_support::git_resolve_conflict
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
