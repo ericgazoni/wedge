@@ -16,14 +16,18 @@ import EditorView from "./components/views/EditorView.vue";
 import BatchView from "./components/views/BatchView.vue";
 import GitView from "./components/views/GitView.vue";
 import ProjectSetupView from "./components/views/ProjectSetupView.vue";
-import { check } from '@tauri-apps/plugin-updater';
-import { relaunch } from '@tauri-apps/plugin-process';
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
-const update = await check();
-if (update) {
-  // update.version, update.body (release notes)
-  await update.downloadAndInstall();
-  await relaunch();
+async function checkForAppUpdateAndRelaunch() {
+  try {
+    const update = await check();
+    if (!update) return;
+    await update.downloadAndInstall();
+    await relaunch();
+  } catch {
+    // Ignore update failures so the app can continue loading normally.
+  }
 }
 const app = useAppStore();
 const repo = useRepoStore();
@@ -444,6 +448,7 @@ watch(() => keys["Escape"]?.value, (p, prev) => {
 });
 
 onMounted(async () => {
+  await checkForAppUpdateAndRelaunch();
   unlistenMenuAction = await listen<{ action?: string }>(APP_MENU_EVENT_NAME, async (event) => {
     if (event.payload?.action === "open-remote-repository") {
       openRemoteRepositoryDialog();
