@@ -364,7 +364,7 @@ watch(
 
 watch(() => keys["ArrowDown"]?.value, (p, prev) => p && !prev && moveCursor(1));
 watch(() => keys["ArrowUp"]?.value, (p, prev) => p && !prev && moveCursor(-1));
-watch(() => keys["Enter"]?.value, (p, prev) => p && !prev && activateCursorRow());
+watch(() => keys["Enter"]?.value, (p, prev) => p && !prev && app.currentView !== "batch" && activateCursorRow());
 watch(() => keys["/"]?.value, (p, prev) => {
   if (!(p && !prev)) return;
   (document.getElementById("tree-filter") as HTMLInputElement | null)?.focus();
