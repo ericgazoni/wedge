@@ -4,7 +4,7 @@ import { useMagicKeys } from "@vueuse/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { exists } from "@tauri-apps/plugin-fs";
-import { useAppStore } from "./stores/app";
+import { useAppStore, type EditorFontSize } from "./stores/app";
 import { useRepoStore } from "./stores/repo";
 import { useGitStore } from "./stores/git";
 import { gitGetOriginHost } from "./services/git";
@@ -55,6 +55,13 @@ const gitSettingsPassword = ref("");
 const gitSettingsCommitName = ref("");
 const gitSettingsCommitEmail = ref("");
 const gitSettingsError = ref("");
+
+const editorSettingsDialogOpen = ref(false);
+const editorFontSizeOptions: { value: EditorFontSize; label: string }[] = [
+  { value: "compact", label: "Compact" },
+  { value: "normal", label: "Normal" },
+  { value: "large", label: "Large" },
+];
 
 let unlistenMenuAction: (() => void) | null = null;
 
@@ -367,6 +374,14 @@ function closeGitSettingsDialog() {
   gitSettingsError.value = "";
 }
 
+function openEditorSettingsDialog() {
+  editorSettingsDialogOpen.value = true;
+}
+
+function closeEditorSettingsDialog() {
+  editorSettingsDialogOpen.value = false;
+}
+
 function normalizeGitSettingsHostInPlace() {
   gitSettingsHost.value = normalizeHost(gitSettingsHost.value);
   const remembered = loadRememberedCredentialsForHost(gitSettingsHost.value);
@@ -456,6 +471,10 @@ onMounted(async () => {
     }
     if (event.payload?.action === "configure-git-settings") {
       await openGitSettingsDialog();
+      return;
+    }
+    if (event.payload?.action === "open-editor-settings") {
+      openEditorSettingsDialog();
     }
   });
   await tryOpenLatestRepositoryOnStartup();
@@ -614,6 +633,27 @@ onBeforeUnmount(() => {
             <button class="btn" @click="closeGitSettingsDialog">Cancel</button>
             <button class="btn" @click="saveGitSettings">Save</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="editorSettingsDialogOpen" class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4">
+      <div class="panel w-full max-w-md p-4 space-y-4" @pointerdown.stop>
+        <div class="text-lg font-semibold">Editor settings</div>
+
+        <div class="space-y-1">
+          <label class="text-sm text-slate-400">Font size</label>
+          <select v-model="app.editorFontSize" class="input w-full h-9">
+            <option v-for="option in editorFontSizeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+          </select>
+        </div>
+
+        <div class="text-xs text-slate-400 border border-slate-700 rounded p-2">
+          Applies to the whole app and is saved locally on this computer.
+        </div>
+
+        <div class="flex justify-end">
+          <button class="btn" @click="closeEditorSettingsDialog">Done</button>
         </div>
       </div>
     </div>

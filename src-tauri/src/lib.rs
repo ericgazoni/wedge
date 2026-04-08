@@ -12,6 +12,7 @@ const MIN_WINDOW_HEIGHT: f64 = 600.0;
 const APP_MENU_EVENT_NAME: &str = "wedge://menu-action";
 const MENU_OPEN_REMOTE_REPOSITORY_ID: &str = "menu.open_remote_repository";
 const MENU_CONFIGURE_GIT_SETTINGS_ID: &str = "menu.configure_git_settings";
+const MENU_OPEN_EDITOR_SETTINGS_ID: &str = "menu.open_editor_settings";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,7 +68,10 @@ fn build_app_menu<R: tauri::Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R
         .text(MENU_OPEN_REMOTE_REPOSITORY_ID, "Open Remote Repository...")
         .text(MENU_CONFIGURE_GIT_SETTINGS_ID, "Configure Git Settings...")
         .build()?;
+    let editor_settings_menu =
+        SubmenuBuilder::new(app, "Editor settings").text(MENU_OPEN_EDITOR_SETTINGS_ID, "Font Size...").build()?;
     menu.append(&git_menu)?;
+    menu.append(&editor_settings_menu)?;
     Ok(menu)
 }
 
@@ -113,6 +117,7 @@ pub fn run() {
             let action = match event.id().as_ref() {
                 MENU_OPEN_REMOTE_REPOSITORY_ID => Some("open-remote-repository"),
                 MENU_CONFIGURE_GIT_SETTINGS_ID => Some("configure-git-settings"),
+                MENU_OPEN_EDITOR_SETTINGS_ID => Some("open-editor-settings"),
                 _ => None,
             };
 
