@@ -16,7 +16,15 @@ import EditorView from "./components/views/EditorView.vue";
 import BatchView from "./components/views/BatchView.vue";
 import GitView from "./components/views/GitView.vue";
 import ProjectSetupView from "./components/views/ProjectSetupView.vue";
+import { check } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
 
+const update = await check();
+if (update) {
+  // update.version, update.body (release notes)
+  await update.downloadAndInstall();
+  await relaunch();
+}
 const app = useAppStore();
 const repo = useRepoStore();
 const git = useGitStore();
