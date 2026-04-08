@@ -233,9 +233,12 @@ watch(
 );
 
 watch(() => batchSourceItem.value?.uid, () => {
-  if (!batchSourceItem.value) return;
-  const targets = getDirectChildPrefixes(batchSourceItem.value.docPrefix);
+  const source = batchSourceItem.value;
+  if (!source) return;
+  const targets = getDirectChildPrefixes(source.docPrefix);
   batchDocPrefix.value = targets.includes(batchDocPrefix.value) ? batchDocPrefix.value : (targets[0] ?? "");
+  // Keep the selected tree item as the active batch source when switching items in-place.
+  batchLinkUid.value = source.uid;
 }, { immediate: true });
 
 watch(() => batchDocPrefix.value, () => {

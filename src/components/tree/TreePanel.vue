@@ -218,7 +218,6 @@ function onWindowEscapeKey(event: KeyboardEvent) {
 function onItemContextMenu(event: MouseEvent, idx: number, uid: string) {
   event.preventDefault();
   flatTreeCursor.value = idx;
-  app.selectedUid = uid;
   contextMenu.value = {
     open: true,
     x: event.clientX,
