@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useMagicKeys } from "@vueuse/core";
 import { useAppStore } from "../../stores/app";
 import { useRepoStore } from "../../stores/repo";
@@ -26,6 +26,23 @@ const batchRows = ref<BatchRow[]>([]);
 const batchMessage = ref("");
 const savingBatch = ref(false);
 let nextBatchRowId = 1;
+const batchTitleInputs = new Map<number, HTMLInputElement>();
+
+function setBatchTitleInputRef(id: number, el: HTMLInputElement | null) {
+  if (el) batchTitleInputs.set(id, el);
+  else batchTitleInputs.delete(id);
+}
+
+function focusBatchTitleInput(id: number) {
+  void nextTick(() => batchTitleInputs.get(id)?.focus());
+}
+
+function isTypingInFormField(): boolean {
+  const el = document.activeElement as HTMLElement | null;
+  if (!el) return false;
+  if (el.isContentEditable) return true;
+  return ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName);
+}
 
 const selectedItem = computed(() => repo.findItem(app.selectedUid));
 const availableDocPrefixes = computed(() =>
@@ -137,6 +154,7 @@ function addBatchRow(afterIndex?: number) {
   } else {
     batchRows.value.splice(afterIndex + 1, 0, row);
   }
+  focusBatchTitleInput(row.id);
 }
 
 function removeBatchRow(index: number) {
@@ -152,7 +170,7 @@ function toggleBatchRowExpanded(index: number, expanded?: boolean) {
 }
 
 function onBatchTitleKeydown(event: KeyboardEvent, index: number) {
-  if (event.key === "Enter") {
+  if (event.key === "Enter" && event.ctrlKey) {
     event.preventDefault();
     addBatchRow(index);
     return;
@@ -261,40 +279,65 @@ watch(() => [batchDocPrefix.value, batchLinkOptions.value.map((x) => x.uid).join
 watch(() => keys["Ctrl+Shift+N"]?.value, (p, prev) => {
   if (p && !prev) app.currentView = "batch";
 });
-watch(() => keys["Ctrl+Enter"]?.value, async (p, prev) => p && !prev && app.currentView === "batch" && (await saveBatchItems()));
-watch(() => keys["Ctrl+N"]?.value, (p, prev) => p && !prev && app.currentView === "batch" && addBatchRow());
+watch(() => keys["Ctrl+S"]?.value, async (p, prev) => p && !prev && app.currentView === "batch" && (await saveBatchItems()));
+watch(
+  () => keys["Ctrl+Enter"]?.value,
+  (p, prev) => p && !prev && app.currentView === "batch" && !isTypingInFormField() && addBatchRow(),
+);
 </script>
 
 <template>
   <div class="space-y-3 w-full">
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2 flex-wrap w-fit max-w-full">
       <label class="text-sm text-slate-400">Document</label>
-      <select class="input h-9 min-w-[180px]" v-model="batchDocPrefix">
+      <select class="input h-9 min-w-[10rem] max-w-[16rem]" v-model="batchDocPrefix">
         <option value="" disabled>Select document</option>
         <option v-for="prefix in batchTargetDocOptions" :key="`batch-doc-${prefix}`" :value="prefix">{{ prefix }}</option>
       </select>
       <label class="text-sm text-slate-400">Link</label>
-      <select class="input h-9 min-w-[260px]" v-model="batchLinkUid">
+      <select class="input h-9 min-w-[12rem] max-w-[24rem]" v-model="batchLinkUid">
         <option value="">(none)</option>
         <option v-for="option in batchLinkOptions" :key="`batch-link-${option.uid}`" :value="option.uid">{{ option.label }}</option>
       </select>
-      <button class="btn" :disabled="savingBatch || !batchDocPrefix" @click="saveBatchItems"><span class="kbd mr-2">Ctrl+Enter</span>Save all</button>
-      <button class="btn" @click="addBatchRow()"><span class="kbd mr-2">Ctrl+N</span>Add line</button>
+    </div>
+    <div class="flex items-center gap-2">
+      <button class="btn" :disabled="savingBatch || !batchDocPrefix" @click="saveBatchItems"><span class="kbd mr-2">Ctrl+S</span>Save all</button>
+      <button class="btn" @click="addBatchRow()"><span class="kbd mr-2">Ctrl+Enter</span>Add line</button>
     </div>
     <div v-if="!batchDocPrefix" class="text-xs text-amber-300">No valid child document for the selected source item.</div>
     <div v-if="batchMessage" class="text-xs text-slate-300 bg-slate-800 border border-slate-700 rounded px-2 py-1">{{ batchMessage }}</div>
     <div class="space-y-2">
       <div v-for="(row, idx) in batchRows" :key="`batch-row-${row.id}`" class="border border-slate-800 rounded-md p-2 bg-panel2">
-        <div class="flex items-center gap-2">
-          <input class="input h-9 flex-1" v-model="row.title" placeholder="Item title" @keydown="onBatchTitleKeydown($event, idx)" />
-          <button class="btn" @click="toggleBatchRowExpanded(idx)">{{ row.expanded ? 'Collapse' : 'Expand' }}</button>
-          <button class="btn" @click="removeBatchRow(idx)">Remove</button>
+        <div class="flex items-center gap-2 flex-wrap">
+          <input
+            :ref="(el) => setBatchTitleInputRef(row.id, el as HTMLInputElement | null)"
+            class="input h-9 flex-1 min-w-[12rem]"
+            v-model="row.title"
+            placeholder="Item title"
+            @keydown="onBatchTitleKeydown($event, idx)"
+          />
+          <button
+            class="btn px-3"
+            :aria-label="row.expanded ? 'Collapse row' : 'Expand row'"
+            :title="row.expanded ? 'Collapse row' : 'Expand row'"
+            @click="toggleBatchRowExpanded(idx)"
+          >
+            {{ row.expanded ? "^^" : "vv" }}
+          </button>
+          <button
+            class="btn px-3"
+            aria-label="Remove row"
+            title="Remove row"
+            @click="removeBatchRow(idx)"
+          >
+            x
+          </button>
         </div>
-        <div v-if="row.expanded" class="mt-2 grid grid-cols-2 gap-2">
-          <textarea class="input min-h-[90px] col-span-2" v-model="row.text" placeholder="Text" />
+        <div v-if="row.expanded" class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <textarea class="input min-h-[90px] sm:col-span-2" v-model="row.text" placeholder="Text" />
           <input class="input h-9" v-model="row.ref" placeholder="Ref" />
           <input class="input h-9" type="number" step="0.1" v-model.number="row.level" />
-          <div class="col-span-2 flex gap-4 text-sm">
+          <div class="sm:col-span-2 flex gap-4 text-sm flex-wrap">
             <label class="flex items-center gap-2"><input type="checkbox" v-model="row.active" />active</label>
             <label class="flex items-center gap-2"><input type="checkbox" v-model="row.derived" />derived</label>
             <label class="flex items-center gap-2"><input type="checkbox" v-model="row.normative" />normative</label>
