@@ -324,6 +324,20 @@ const contextMenuTargetIsActive = computed(() => {
   const item = contextMenuTargetItem.value;
   return item ? isItemActive(item) : false;
 });
+const contextMenuTargetIsInTopLevelDocument = computed(() => {
+  const item = contextMenuTargetItem.value;
+  if (!item) return true;
+  const doc = repo.documentTree.find((d) => d.prefix === item.docPrefix);
+  return !doc?.parent;
+});
+
+function openBatchEditorFromContextMenu() {
+  const uid = contextMenu.value.uid;
+  if (!uid) return;
+  app.selectedUid = uid;
+  app.currentView = "batch";
+  closeContextMenu();
+}
 
 onMounted(() => {
   window.addEventListener("pointerdown", onWindowPointerDown);
@@ -444,6 +458,13 @@ watch(() => keys["/"]?.value, (p, prev) => {
         @click="duplicateItemFromContextMenu"
       >
         Duplicate item
+      </button>
+      <button
+        v-if="contextMenu.target === 'item' && contextMenuTargetIsInTopLevelDocument"
+        class="w-full rounded px-2 py-1 text-left text-sm hover:bg-slate-800"
+        @click="openBatchEditorFromContextMenu"
+      >
+        Open in batch editor
       </button>
       <button
         v-if="contextMenu.target === 'item'"
