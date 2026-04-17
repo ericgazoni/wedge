@@ -118,7 +118,11 @@ export const useRepoStore = defineStore("repo", () => {
     const hit = findItemWithDocument(uid);
     if (!hit) return false;
 
-    await writeDoorstopItem(hit.item.filePath, data);
+    hit.item.filePath = await writeDoorstopItem(
+      hit.item.filePath,
+      data,
+      hit.document.config.settings.itemformat,
+    );
     hit.item.data = safeCloneData(data);
     return true;
   }

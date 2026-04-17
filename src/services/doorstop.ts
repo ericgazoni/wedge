@@ -7,6 +7,8 @@ import type {
   RepoModel,
 } from "../types/doorstop";
 
+type ItemFormat = "yaml" | "markdown";
+
 type FsEntry = {
   name?: string;
   isDirectory?: boolean;
@@ -92,12 +94,19 @@ function defaultDocConfig(prefix: string): DocumentConfig {
   return {
     settings: {
       digits: 3,
+      itemformat: "yaml",
       prefix,
       parent: null,
       sep: "",
     },
     attributes: {},
   };
+}
+
+function normalizeItemFormat(value: unknown): ItemFormat {
+  const raw = String(value ?? "yaml").trim().toLowerCase();
+  if (raw === "markdown" || raw === "md") return "markdown";
+  return "yaml";
 }
 
 async function parseDocumentConfig(
@@ -111,6 +120,7 @@ async function parseDocumentConfig(
     return {
       settings: {
         digits: Number(settings.digits ?? 3),
+        itemformat: normalizeItemFormat(settings.itemformat),
         prefix: String(settings.prefix ?? fallbackPrefix),
         parent: settings.parent == null ? null : String(settings.parent),
         sep: String(settings.sep ?? ""),
@@ -398,6 +408,18 @@ function extFromPath(path: string): "yaml" | "markdown" {
   return isMarkdownExt(path) ? "markdown" : "yaml";
 }
 
+function extensionFromItemFormat(format: ItemFormat): ".yml" | ".md" {
+  return format === "markdown" ? ".md" : ".yml";
+}
+
+function withItemFormatExtension(path: string, format: ItemFormat): string {
+  const ext = extensionFromItemFormat(format);
+  if (/\.(ya?ml|md|markdown)$/i.test(path)) {
+    return path.replace(/\.(ya?ml|md|markdown)$/i, ext);
+  }
+  return `${path}${ext}`;
+}
+
 function ensureTrailingNewline(text: string): string {
   return text.endsWith("\n") ? text : `${text}\n`;
 }
@@ -502,7 +524,8 @@ function buildUid(document: DoorstopDocument, n: number): string {
 }
 
 function itemPathFromUid(document: DoorstopDocument, uid: string): string {
-  return joinPath(document.dirPath, `${uid}.yml`);
+  const ext = extensionFromItemFormat(document.config.settings.itemformat);
+  return joinPath(document.dirPath, `${uid}${ext}`);
 }
 
 export function getCustomAttributes(
@@ -530,9 +553,23 @@ export function getCustomAttributes(
 export async function writeDoorstopItem(
   filePath: string,
   data: Record<string, unknown>,
-): Promise<void> {
+  itemformat?: ItemFormat,
+): Promise<string> {
   const normalized = normalizeDoorstopData(data);
-  await writeTextFile(filePath, serializeItemToFile(normalized, filePath));
+  const targetPath = itemformat
+    ? withItemFormatExtension(filePath, itemformat)
+    : filePath;
+
+  await writeTextFile(targetPath, serializeItemToFile(normalized, targetPath));
+
+  if (normalizePath(filePath) !== normalizePath(targetPath)) {
+    const hadOldPath = await exists(filePath).catch(() => false);
+    if (hadOldPath) {
+      await remove(filePath);
+    }
+  }
+
+  return targetPath;
 }
 
 export async function createDoorstopItem(
@@ -557,7 +594,11 @@ export async function createDoorstopItem(
     ...(partial ?? {}),
   });
 
-  await writeDoorstopItem(filePath, data);
+  filePath = await writeDoorstopItem(
+    filePath,
+    data,
+    document.config.settings.itemformat,
+  );
 
   return {
     uid,

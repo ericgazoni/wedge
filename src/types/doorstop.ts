@@ -1,5 +1,6 @@
 export type DocSettings = {
   digits: number;
+  itemformat: "yaml" | "markdown";
   prefix: string;
   parent: string | null;
   sep: string;

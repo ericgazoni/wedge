@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "doorstop:fix-itemformat": "node scripts/fix-doorstop-itemformat.mjs . --apply",
+    "doorstop:fix-itemformat:dry": "node scripts/fix-doorstop-itemformat.mjs ."
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
