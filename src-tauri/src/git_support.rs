@@ -193,7 +193,16 @@ fn push_options(credentials: Option<&GitCredentials>) -> PushOptions<'static> {
 
 fn open_repo(path: &str) -> Result<Repository, git2::Error> {
     // Match git CLI behavior: allow opening from any nested path inside a repo.
-    Repository::discover(Path::new(path)).or_else(|_| Repository::open(Path::new(path)))
+    let repo = Repository::discover(Path::new(path)).or_else(|_| Repository::open(Path::new(path)))?;
+    enforce_lf_eol_config(&repo)?;
+    Ok(repo)
+}
+
+fn enforce_lf_eol_config(repo: &Repository) -> Result<(), git2::Error> {
+    let mut config = repo.config()?;
+    config.set_str("core.autocrlf", "false")?;
+    config.set_str("core.eol", "lf")?;
+    Ok(())
 }
 
 fn normalize_host(raw_host: &str) -> Option<String> {
@@ -607,6 +616,14 @@ pub fn git_clone_project(input: CloneProjectInput) -> CloneProjectResult {
 
     match builder.clone(&input.url, Path::new(&input.destination)) {
         Ok(repo) => {
+            if let Err(error) = enforce_lf_eol_config(&repo) {
+                return CloneProjectResult {
+                    ok: false,
+                    opened_path: None,
+                    status: None,
+                    error: Some(map_error(&error)),
+                };
+            }
             let status = repo_status(&repo, false).ok();
             CloneProjectResult {
                 ok: true,
