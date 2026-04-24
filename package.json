@@ -1,7 +1,7 @@
 {
   "name": "wedge",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,10 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "doorstop:fix-itemformat": "node scripts/fix-doorstop-itemformat.mjs . --apply",
-    "doorstop:fix-itemformat:dry": "node scripts/fix-doorstop-itemformat.mjs ."
+    "doorstop:fix-itemformat:dry": "node scripts/fix-doorstop-itemformat.mjs .",
+    "version:get": "node scripts/version-sync.mjs get",
+    "version:check": "node scripts/version-sync.mjs check",
+    "version:set": "node scripts/version-sync.mjs set"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
