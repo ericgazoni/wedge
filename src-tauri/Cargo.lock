@@ -5189,7 +5189,7 @@ dependencies = [
 
 [[package]]
 name = "wedge"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "git2",
  "serde",
@@ -6066,4 +6066,5 @@ dependencies = [
  "syn 2.0.117",
  "winnow 0.7.15",
 ]
+
 

@@ -1,6 +1,6 @@
 [package]
 name = "wedge"
-version = "0.2.2"
+version = "0.2.3"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -32,4 +32,5 @@ git2 = { version = "0.19", default-features = false, features = ["vendored-libgi
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
+
 
