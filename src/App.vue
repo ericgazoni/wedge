@@ -540,6 +540,7 @@ onBeforeUnmount(() => {
         :doorstop-issue-count="repo.doorstopIssues.length"
         @sync-now="runSyncNow"
         @show-log="doorstopLogOpen = true"
+        @run-check="repo.runCheck()"
       />
     </div>
 

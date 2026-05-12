@@ -18,6 +18,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "sync-now"): void;
   (e: "show-log"): void;
+  (e: "run-check"): void;
 }>();
 
 function syncToneClasses(tone: "amber" | "green" | "blue" | "red" | "neutral") {
@@ -58,6 +59,7 @@ const checkStatusClass = computed(() => {
       <template v-if="doorstopChecking || doorstopAvailable !== null">
         <span class="text-slate-600">|</span>
         <button :class="[checkStatusClass, 'hover:underline']" @click="emit('show-log')">{{ checkStatusText }}</button>
+        <button class="btn h-7" :disabled="doorstopChecking" @click="emit('run-check')">Check</button>
       </template>
     </div>
   </footer>
