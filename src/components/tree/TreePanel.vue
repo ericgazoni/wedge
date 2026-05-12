@@ -313,6 +313,7 @@ async function toggleItemActiveFromContextMenu() {
   };
 
   await repo.saveItem(uid, nextData);
+  void repo.reviewAndCheck(uid);
   closeContextMenu();
 }
 
