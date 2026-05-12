@@ -8,7 +8,7 @@ import type { DoorstopItem } from "../../types/doorstop";
 
 type TreeRow =
   | { kind: "doc"; key: string; label: string; hasIssues: boolean }
-  | { kind: "item"; uid: string; header: string; active: boolean };
+  | { kind: "item"; uid: string; header: string; active: boolean; hasIssues: boolean };
 
 const emit = defineEmits<{
   (e: "counts-change", payload: { docs: number; items: number }): void;
@@ -159,7 +159,7 @@ const flatTree = computed<TreeRow[]>(() => {
     if (onlyIssues && !docHasIssues) continue;
 
     const visibleItems = d.items.filter(
-      (it) => matchesItemFilter(it, q) && (!onlyActive || isItemActive(it)),
+      (it) => matchesItemFilter(it, q) && (!onlyActive || isItemActive(it)) && (!onlyIssues || repo.issuesByItemUid.has(it.uid)),
     );
     if (q.trim().length > 0 && visibleItems.length === 0) continue;
 
@@ -172,6 +172,7 @@ const flatTree = computed<TreeRow[]>(() => {
         uid: it.uid,
         header: String(it.data.header ?? ""),
         active: isItemActive(it),
+        hasIssues: repo.issuesByItemUid.has(it.uid),
       });
     }
   }
@@ -467,6 +468,11 @@ watch(() => keys["/"]?.value, (p, prev) => {
               <span class="text-slate-300">{{ row.uid }}</span>
               <span class="text-slate-500"> - {{ row.header || "(no header)" }}</span>
               <span v-if="!row.active" class="text-[10px] uppercase tracking-wide text-slate-500 ml-2">inactive</span>
+              <span
+                v-if="row.hasIssues"
+                class="ml-1 text-amber-400 text-xs"
+                :title="repo.issuesByItemUid.get(row.uid)?.map(i => i.message).join('\n')"
+              >⚠</span>
             </template>
           </div>
         </div>

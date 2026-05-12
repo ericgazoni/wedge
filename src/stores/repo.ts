@@ -57,6 +57,18 @@ export const useRepoStore = defineStore("repo", () => {
     return null;
   }
 
+  // Doorstop may report UIDs with a different separator than the filename uses
+  // (e.g. issue uid "SRD-001" vs filename "SRD_001.md"). Try swapping the
+  // separator character immediately before the trailing digit group.
+  function findItemByIssueUid(issueUid: string): DoorstopItem | null {
+    const exact = findItem(issueUid);
+    if (exact) return exact;
+    const alt = issueUid.replace(/([_-])(\d+)$/, (_, sep, num) =>
+      `${sep === "-" ? "_" : "-"}${num}`,
+    );
+    return alt !== issueUid ? findItem(alt) : null;
+  }
+
   async function load(path: string) {
     loading.value = true;
     error.value = "";
@@ -166,7 +178,7 @@ export const useRepoStore = defineStore("repo", () => {
   const docsWithIssues = computed<Set<string>>(() => {
     const result = new Set<string>();
     for (const issue of doorstopIssues.value) {
-      const item = findItem(issue.uid);
+      const item = findItemByIssueUid(issue.uid);
       if (item) {
         result.add(item.docPrefix);
         continue;
@@ -179,6 +191,18 @@ export const useRepoStore = defineStore("repo", () => {
       }
     }
     return result;
+  });
+
+  const issuesByItemUid = computed<Map<string, DoorstopIssue[]>>(() => {
+    const map = new Map<string, DoorstopIssue[]>();
+    for (const issue of doorstopIssues.value) {
+      const item = findItemByIssueUid(issue.uid);
+      if (!item) continue;
+      const existing = map.get(item.uid) ?? [];
+      existing.push(issue);
+      map.set(item.uid, existing);
+    }
+    return map;
   });
 
   async function applyCheckResult(result: DoorstopCheckResult) {
@@ -240,6 +264,7 @@ export const useRepoStore = defineStore("repo", () => {
     doorstopAvailable,
     doorstopChecking,
     docsWithIssues,
+    issuesByItemUid,
     runCheck,
     reviewAndCheck,
   };

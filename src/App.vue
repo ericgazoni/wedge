@@ -36,6 +36,7 @@ const keys = useMagicKeys();
 
 const visibleDocCount = ref(0);
 const visibleItemCount = ref(0);
+const doorstopLogOpen = ref(false);
 
 let openingRepo = false;
 const joiningProject = ref(false);
@@ -538,6 +539,7 @@ onBeforeUnmount(() => {
         :doorstop-checking="repo.doorstopChecking"
         :doorstop-issue-count="repo.doorstopIssues.length"
         @sync-now="runSyncNow"
+        @show-log="doorstopLogOpen = true"
       />
     </div>
 
@@ -658,6 +660,34 @@ onBeforeUnmount(() => {
 
         <div class="flex justify-end">
           <button class="btn" @click="closeEditorSettingsDialog">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="doorstopLogOpen" class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4" @pointerdown="doorstopLogOpen = false">
+      <div class="panel w-full max-w-2xl p-4 space-y-3 max-h-[80vh] flex flex-col" @pointerdown.stop>
+        <div class="text-lg font-semibold">Doorstop check results</div>
+
+        <div v-if="repo.doorstopChecking" class="text-sm text-sky-300">Checking…</div>
+        <div v-else-if="!repo.doorstopAvailable" class="text-sm text-slate-400">Doorstop is not available.</div>
+        <div v-else-if="repo.doorstopIssues.length === 0" class="text-sm text-emerald-400">No issues found.</div>
+        <div v-else class="overflow-auto flex-1 space-y-1">
+          <div
+            v-for="(issue, idx) in repo.doorstopIssues"
+            :key="idx"
+            class="flex gap-2 text-xs font-mono items-start"
+          >
+            <span
+              class="shrink-0 uppercase tracking-wide font-semibold"
+              :class="issue.level === 'error' ? 'text-red-400' : 'text-amber-400'"
+            >{{ issue.level }}</span>
+            <span class="text-slate-300 shrink-0">{{ issue.uid }}</span>
+            <span class="text-slate-400">{{ issue.message }}</span>
+          </div>
+        </div>
+
+        <div class="flex justify-end">
+          <button class="btn" @click="doorstopLogOpen = false">Close</button>
         </div>
       </div>
     </div>
