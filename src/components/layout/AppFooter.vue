@@ -1,5 +1,7 @@
 <script setup lang="ts">
-defineProps<{
+import { computed } from "vue";
+
+const props = defineProps<{
   visibleDocCount: number;
   visibleItemCount: number;
   syncText: string;
@@ -8,6 +10,9 @@ defineProps<{
   lastSyncAt: string;
   canSync: boolean;
   syncing: boolean;
+  doorstopAvailable: boolean | null;
+  doorstopChecking: boolean;
+  doorstopIssueCount: number;
 }>();
 
 const emit = defineEmits<{
@@ -21,16 +26,38 @@ function syncToneClasses(tone: "amber" | "green" | "blue" | "red" | "neutral") {
   if (tone === "red") return "text-red-300";
   return "text-slate-400";
 }
+
+const checkStatusText = computed(() => {
+  if (props.doorstopChecking) return "checking…";
+  if (props.doorstopAvailable === null) return "";
+  if (!props.doorstopAvailable) return "doorstop: not found";
+  return props.doorstopIssueCount === 0
+    ? "✓ no issues"
+    : `⚠ ${props.doorstopIssueCount} issue${props.doorstopIssueCount > 1 ? "s" : ""}`;
+});
+
+const checkStatusClass = computed(() => {
+  if (props.doorstopChecking) return "text-sky-300";
+  if (props.doorstopAvailable === null) return "";
+  if (!props.doorstopAvailable) return "text-slate-500";
+  return props.doorstopIssueCount === 0 ? "text-emerald-400" : "text-amber-400";
+});
 </script>
 
 <template>
   <footer class="bg-panel px-4 flex items-center justify-between text-xs border-t border-slate-800 gap-3">
-    <div class="text-slate-400 truncate">branch: {{ branchName || "-" }}<span v-if="lastSyncAt"> | last sync: {{ lastSyncAt }}</span></div>
-    <div class="flex items-center gap-3 shrink-0">
-      <div :class="syncToneClasses(syncTone)">{{ syncText }}</div>
+    <div class="flex items-center gap-2 shrink-0">
+      <span class="text-slate-400">{{ branchName || "-" }}</span>
+      <span class="text-slate-600">|</span>
+      <span :class="syncToneClasses(syncTone)">{{ syncText }}</span>
       <button class="btn h-7" :disabled="!canSync || syncing" @click="emit('sync-now')">Sync now</button>
-      <div class="text-slate-400">docs: {{ visibleDocCount }} | items: {{ visibleItemCount }}</div>
+    </div>
+    <div class="flex items-center gap-3 shrink-0">
+      <span class="text-slate-400">docs: {{ visibleDocCount }} | items: {{ visibleItemCount }}</span>
+      <template v-if="doorstopChecking || doorstopAvailable !== null">
+        <span class="text-slate-600">|</span>
+        <span :class="checkStatusClass">{{ checkStatusText }}</span>
+      </template>
     </div>
   </footer>
 </template>
-

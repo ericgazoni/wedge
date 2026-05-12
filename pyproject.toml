@@ -1,0 +1,9 @@
+[project]
+name = "wedge-python-deps"
+version = "0.1.0"
+description = "Python build and dev dependencies for Wedge"
+requires-python = ">=3.9"
+dependencies = [
+    "doorstop>=3.0",
+    "pyinstaller>=6.0",
+]

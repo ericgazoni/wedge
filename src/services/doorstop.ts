@@ -1,9 +1,12 @@
 import { exists, readDir, readTextFile, remove, writeTextFile } from "@tauri-apps/plugin-fs";
+import { invoke } from "@tauri-apps/api/core";
 import { dump, load } from "js-yaml";
 import type {
   DocumentConfig,
+  DoorstopCheckResult,
   DoorstopDocument,
   DoorstopItem,
+  DoorstopReviewResult,
   RepoModel,
 } from "../types/doorstop";
 
@@ -610,5 +613,13 @@ export async function createDoorstopItem(
 
 export async function deleteDoorstopItem(filePath: string): Promise<void> {
   await remove(filePath);
+}
+
+export async function runDoorstopCheck(rootPath: string): Promise<DoorstopCheckResult> {
+  return invoke<DoorstopCheckResult>("doorstop_check", { rootPath });
+}
+
+export async function runDoorstopReview(rootPath: string, uid: string): Promise<DoorstopReviewResult> {
+  return invoke<DoorstopReviewResult>("doorstop_review", { rootPath, uid });
 }
 

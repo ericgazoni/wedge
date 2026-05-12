@@ -35,6 +35,24 @@ export type RepoModel = {
   documents: DoorstopDocument[];
 };
 
+export type DoorstopIssueLevel = "error" | "warning";
+
+export type DoorstopIssue = {
+  level: DoorstopIssueLevel;
+  uid: string;
+  message: string;
+};
+
+export type DoorstopCheckResult = {
+  available: boolean;
+  issues: DoorstopIssue[];
+};
+
+export type DoorstopReviewResult = {
+  available: boolean;
+  success: boolean;
+};
+
 export const STANDARD_FIELDS = [
   "active",
   "derived",

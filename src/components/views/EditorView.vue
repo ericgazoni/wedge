@@ -224,6 +224,7 @@ async function saveCurrentItem(mode: "manual" | "auto" = "manual") {
     await repo.saveItem(selectedItem.value.uid, editorDraft.value);
     lastSavedSnapshot.value = snapshot;
     editorMessage.value = mode === "auto" ? "Auto-saved." : "Saved.";
+    void repo.reviewAndCheck(selectedItem.value.uid);
   } catch (error) {
     editorMessage.value = error instanceof Error ? error.message : "Failed to save item.";
   } finally {

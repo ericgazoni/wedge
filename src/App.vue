@@ -244,6 +244,7 @@ async function loadRepositoryAtPath(path: string): Promise<boolean> {
   if (!git.error) {
     await reloadRepositoryModel();
   }
+  void repo.runCheck();
   return true;
 }
 
@@ -533,6 +534,9 @@ onBeforeUnmount(() => {
         :last-sync-at="git.lastSyncAt"
         :can-sync="app.hasRepo"
         :syncing="git.syncing"
+        :doorstop-available="repo.doorstopAvailable"
+        :doorstop-checking="repo.doorstopChecking"
+        :doorstop-issue-count="repo.doorstopIssues.length"
         @sync-now="runSyncNow"
       />
     </div>

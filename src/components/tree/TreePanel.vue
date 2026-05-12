@@ -7,7 +7,7 @@ import { useRepoStore } from "../../stores/repo";
 import type { DoorstopItem } from "../../types/doorstop";
 
 type TreeRow =
-  | { kind: "doc"; key: string; label: string }
+  | { kind: "doc"; key: string; label: string; hasIssues: boolean }
   | { kind: "item"; uid: string; header: string; active: boolean };
 
 const emit = defineEmits<{
@@ -22,10 +22,12 @@ const MIN_TREE_WIDTH = 220;
 const MAX_TREE_WIDTH = 760;
 const TREE_WIDTH_STORAGE_KEY = "wedge.treeWidth";
 const ACTIVE_ONLY_STORAGE_KEY = "wedge.treeActiveOnly";
+const ISSUES_ONLY_STORAGE_KEY = "wedge.treeIssuesOnly";
 const SEARCH_EXCLUDED_FIELDS = new Set(["reviewed", "level"]);
 
 const flatTreeCursor = ref(0);
 const showActiveOnly = ref(loadPersistedActiveOnly());
+const showIssuesOnly = ref(loadPersistedIssuesOnly());
 const treeWidth = ref(loadPersistedTreeWidth());
 const contextMenu = ref<{
   open: boolean;
@@ -60,6 +62,15 @@ function loadPersistedActiveOnly(): boolean {
   }
 }
 
+function loadPersistedIssuesOnly(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(ISSUES_ONLY_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 function persistTreeWidth(width: number) {
   if (typeof window === "undefined") return;
   try {
@@ -73,6 +84,15 @@ function persistActiveOnly(value: boolean) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(ACTIVE_ONLY_STORAGE_KEY, value ? "1" : "0");
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function persistIssuesOnly(value: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(ISSUES_ONLY_STORAGE_KEY, value ? "1" : "0");
   } catch {
     // Ignore storage errors.
   }
@@ -130,15 +150,20 @@ function matchesItemFilter(item: DoorstopItem, rawQuery: string): boolean {
 const flatTree = computed<TreeRow[]>(() => {
   const q = app.treeFilter;
   const onlyActive = showActiveOnly.value;
+  const onlyIssues = showIssuesOnly.value;
   const rows: TreeRow[] = [];
 
   for (const d of repo.documentTree) {
+    const docHasIssues = repo.docsWithIssues.has(d.prefix);
+
+    if (onlyIssues && !docHasIssues) continue;
+
     const visibleItems = d.items.filter(
       (it) => matchesItemFilter(it, q) && (!onlyActive || isItemActive(it)),
     );
     if (q.trim().length > 0 && visibleItems.length === 0) continue;
 
-    rows.push({ kind: "doc", key: d.prefix, label: `${d.prefix} (${visibleItems.length})` });
+    rows.push({ kind: "doc", key: d.prefix, label: `${d.prefix} (${visibleItems.length})`, hasIssues: docHasIssues });
     if (!(app.expandedDocs[d.prefix] ?? true)) continue;
 
     for (const it of visibleItems) {
@@ -370,6 +395,11 @@ watch(
 );
 
 watch(
+  () => showIssuesOnly.value,
+  (value) => persistIssuesOnly(value),
+);
+
+watch(
   () => [visibleDocCount.value, visibleItemCount.value],
   ([docs, items]) => emit("counts-change", { docs, items }),
   { immediate: true },
@@ -393,6 +423,10 @@ watch(() => keys["/"]?.value, (p, prev) => {
         <label class="inline-flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap select-none">
           <input v-model="showActiveOnly" type="checkbox" class="h-3.5 w-3.5" />
           Active only
+        </label>
+        <label class="inline-flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap select-none">
+          <input v-model="showIssuesOnly" type="checkbox" class="h-3.5 w-3.5" />
+          Issues only
         </label>
       </div>
       <div class="flex-1 min-h-0 overflow-auto p-2">
@@ -423,6 +457,7 @@ watch(() => keys["/"]?.value, (p, prev) => {
             <template v-if="row.kind === 'doc'">
               <span class="mr-2 text-slate-500">{{ (app.expandedDocs[row.key] ?? true) ? '▾' : '▸' }}</span>
               <span @click.stop="app.toggleDoc(row.key)">{{ row.label }}</span>
+              <span v-if="row.hasIssues" class="ml-1 text-amber-400 text-xs" title="This document has issues">⚠</span>
             </template>
             <template v-else>
               <span
