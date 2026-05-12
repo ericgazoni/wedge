@@ -615,6 +615,14 @@ export async function deleteDoorstopItem(filePath: string): Promise<void> {
   await remove(filePath);
 }
 
+export async function readItemFromFile(
+  filePath: string,
+  docPrefix: string,
+): Promise<DoorstopItem | null> {
+  const fileName = filePath.split("/").pop() ?? "";
+  return parseItemFile(filePath, fileName, docPrefix);
+}
+
 export async function runDoorstopCheck(rootPath: string): Promise<DoorstopCheckResult> {
   return invoke<DoorstopCheckResult>("doorstop_check", { rootPath });
 }

@@ -235,6 +235,11 @@ function closeLinkMenuSoon() {
   }, 120);
 }
 
+async function runReview() {
+  if (!selectedItem.value || repo.doorstopChecking) return;
+  await repo.reviewAndCheck(selectedItem.value.uid);
+}
+
 async function saveCurrentItem(mode: "manual" | "auto" = "manual") {
   if (!selectedItem.value || savingItem.value) return;
 
@@ -294,9 +299,16 @@ onBeforeUnmount(() => {
 <template>
   <div v-if="!selectedItem" class="text-sm text-slate-500">Select an item from the tree.</div>
   <div v-else class="space-y-3 w-full">
-    <div class="h-6 flex items-center text-xs" aria-live="polite">
-      <span v-if="savingItem" class="text-slate-400">Saving...</span>
-      <span v-else-if="editorMessage" class="text-slate-300 truncate">{{ editorMessage }}</span>
+    <div class="h-6 flex items-center justify-between text-xs" aria-live="polite">
+      <div>
+        <span v-if="savingItem" class="text-slate-400">Saving...</span>
+        <span v-else-if="editorMessage" class="text-slate-300 truncate">{{ editorMessage }}</span>
+      </div>
+      <button
+        class="btn"
+        :disabled="repo.doorstopChecking"
+        @click="runReview"
+      >{{ repo.doorstopChecking ? "Reviewing…" : "Review" }}</button>
     </div>
 
     <div class="grid grid-cols-[120px_1fr] gap-2 items-center"><label class="text-sm text-slate-400">UID</label><input class="input h-9" :value="selectedItem.uid" readonly /></div>

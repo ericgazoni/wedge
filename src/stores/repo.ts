@@ -4,6 +4,7 @@ import type { DoorstopCheckResult, DoorstopIssue, RepoModel, DoorstopItem, Doors
 import {
   createDoorstopItem,
   deleteDoorstopItem,
+  readItemFromFile,
   runDoorstopCheck,
   runDoorstopReview,
   scanDoorstopRepository,
@@ -223,6 +224,20 @@ export const useRepoStore = defineStore("repo", () => {
     }
   }
 
+  async function reloadItem(uid: string): Promise<boolean> {
+    const hit = findItemWithDocument(uid);
+    if (!hit) return false;
+    const fresh = await readItemFromFile(
+      hit.item.filePath,
+      hit.document.config.settings.prefix,
+    );
+    if (!fresh) return false;
+    // Replace the array slot so Vue detects the new reference and the editor
+    // watch re-syncs the draft with the freshly-reviewed data.
+    hit.document.items.splice(hit.index, 1, fresh);
+    return true;
+  }
+
   async function reviewAndCheck(uid: string) {
     if (!repo.value) return;
     const rootPath = repo.value.rootPath;
@@ -230,6 +245,7 @@ export const useRepoStore = defineStore("repo", () => {
     try {
       try {
         await runDoorstopReview(rootPath, uid);
+        await reloadItem(uid);
       } catch {
         // review failed or doorstop not installed — continue to check anyway
       }
