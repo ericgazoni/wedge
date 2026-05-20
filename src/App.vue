@@ -37,6 +37,26 @@ const keys = useMagicKeys();
 const visibleDocCount = ref(0);
 const visibleItemCount = ref(0);
 const doorstopLogOpen = ref(false);
+const doorstopFilterText = ref("");
+const doorstopFilterErrors = ref(true);
+const doorstopFilterWarnings = ref(true);
+
+function openDoorstopLog() {
+  doorstopFilterText.value = "";
+  doorstopFilterErrors.value = true;
+  doorstopFilterWarnings.value = true;
+  doorstopLogOpen.value = true;
+}
+
+const doorstopFilteredIssues = computed(() => {
+  const text = doorstopFilterText.value.trim().toLowerCase();
+  return repo.doorstopIssues.filter((issue) => {
+    if (issue.level === "error" && !doorstopFilterErrors.value) return false;
+    if (issue.level === "warning" && !doorstopFilterWarnings.value) return false;
+    if (!text) return true;
+    return issue.uid.toLowerCase().includes(text) || issue.message.toLowerCase().includes(text);
+  });
+});
 
 let openingRepo = false;
 const joiningProject = ref(false);
@@ -539,7 +559,7 @@ onBeforeUnmount(() => {
         :doorstop-issue-count="repo.doorstopIssues.length"
         :doorstop-has-run="repo.doorstopHasRun"
         @sync-now="runSyncNow"
-        @show-log="doorstopLogOpen = true"
+        @show-log="openDoorstopLog"
         @run-check="repo.runCheck()"
       />
     </div>
@@ -669,11 +689,29 @@ onBeforeUnmount(() => {
       <div class="panel w-full max-w-2xl p-4 space-y-3 max-h-[80vh] flex flex-col" @pointerdown.stop>
         <div class="text-lg font-semibold">Doorstop check results</div>
 
+        <div v-if="!repo.doorstopChecking && repo.doorstopIssues.length > 0" class="flex gap-2 items-center flex-wrap">
+          <input
+            v-model="doorstopFilterText"
+            type="text"
+            placeholder="Search UID or message…"
+            class="input flex-1 min-w-0 text-sm"
+          />
+          <label class="flex items-center gap-1 text-xs cursor-pointer select-none">
+            <input type="checkbox" v-model="doorstopFilterErrors" class="accent-red-400" />
+            <span class="text-red-400 font-semibold uppercase tracking-wide">errors</span>
+          </label>
+          <label class="flex items-center gap-1 text-xs cursor-pointer select-none">
+            <input type="checkbox" v-model="doorstopFilterWarnings" class="accent-amber-400" />
+            <span class="text-amber-400 font-semibold uppercase tracking-wide">warnings</span>
+          </label>
+        </div>
+
         <div v-if="repo.doorstopChecking" class="text-sm text-sky-300">Checking…</div>
         <div v-else-if="repo.doorstopIssues.length === 0" class="text-sm text-emerald-400">No issues found.</div>
+        <div v-else-if="doorstopFilteredIssues.length === 0" class="text-sm text-slate-400">No issues match the current filter.</div>
         <div v-else class="overflow-auto flex-1 space-y-1">
           <div
-            v-for="(issue, idx) in repo.doorstopIssues"
+            v-for="(issue, idx) in doorstopFilteredIssues"
             :key="idx"
             class="flex gap-2 text-xs font-mono items-start"
           >
@@ -686,7 +724,11 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="flex justify-end">
+        <div class="flex justify-between items-center">
+          <span v-if="!repo.doorstopChecking && repo.doorstopIssues.length > 0" class="text-xs text-slate-500">
+            {{ doorstopFilteredIssues.length }} / {{ repo.doorstopIssues.length }} issue{{ repo.doorstopIssues.length !== 1 ? 's' : '' }}
+          </span>
+          <span v-else />
           <button class="btn" @click="doorstopLogOpen = false">Close</button>
         </div>
       </div>
