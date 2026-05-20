@@ -239,7 +239,10 @@ export const useRepoStore = defineStore("repo", () => {
       const hit = findItemWithDocument(uid);
       if (hit) {
         const allItemsMap = new Map(allItems.value.map((i) => [i.uid, i]));
-        await runDoorstopReview(hit.item, hit.document, allItemsMap);
+        const docsByPrefix = new Map(
+          (repo.value?.documents ?? []).map((d) => [d.config.settings.prefix, d]),
+        );
+        await runDoorstopReview(hit.item, hit.document, allItemsMap, docsByPrefix);
         await reloadItem(uid);
       }
       const result = await runDoorstopCheck(repo.value);
