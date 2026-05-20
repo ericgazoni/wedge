@@ -4,6 +4,7 @@ export type DocSettings = {
   prefix: string;
   parent: string | null;
   sep: string;
+  child_links: boolean;
 };
 
 export type DocumentConfig = {

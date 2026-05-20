@@ -101,6 +101,7 @@ function defaultDocConfig(prefix: string): DocumentConfig {
       prefix,
       parent: null,
       sep: "",
+      child_links: false,
     },
     attributes: {},
   };
@@ -127,6 +128,7 @@ async function parseDocumentConfig(
         prefix: String(settings.prefix ?? fallbackPrefix),
         parent: settings.parent == null ? null : String(settings.parent),
         sep: String(settings.sep ?? ""),
+        child_links: settings.child_links === true,
       },
       attributes: parsed.attributes ?? {},
     };
@@ -733,28 +735,33 @@ export async function runDoorstopCheck(repoModel: RepoModel): Promise<DoorstopCh
     }
   }
 
-  // No links from child document
+  // Child links coverage check: only runs when child_links: true in the document config.
+  // A parent item is considered covered if at least one child-document item links to it.
   for (const doc of repoModel.documents) {
-    const parentPrefix = doc.config.settings.parent;
-    if (!parentPrefix) continue;
-    const childPrefix = doc.config.settings.prefix;
-    const parentDoc = repoModel.documents.find((d) => d.config.settings.prefix === parentPrefix);
-    if (!parentDoc) continue;
+    if (!doc.config.settings.child_links) continue;
+    const prefix = doc.config.settings.prefix;
 
-    const linkedParentUids = new Set<string>();
-    for (const childItem of doc.items) {
-      for (const uid of linkUids(childItem.data)) {
-        const target = allItemsMap.get(uid);
-        if (target?.docPrefix === parentPrefix) linkedParentUids.add(uid);
+    const childDocs = repoModel.documents.filter(
+      (d) => d.config.settings.parent === prefix,
+    );
+    if (childDocs.length === 0) continue;
+
+    const coveredUids = new Set<string>();
+    for (const childDoc of childDocs) {
+      for (const childItem of childDoc.items) {
+        for (const uid of linkUids(childItem.data)) {
+          const target = allItemsMap.get(uid);
+          if (target?.docPrefix === prefix) coveredUids.add(uid);
+        }
       }
     }
 
-    for (const parentItem of parentDoc.items) {
-      if (!linkedParentUids.has(parentItem.uid)) {
+    for (const item of doc.items) {
+      if (!coveredUids.has(item.uid)) {
         issues.push({
           level: "warning",
-          uid: parentItem.uid,
-          message: `no links from child document: ${childPrefix}`,
+          uid: item.uid,
+          message: "no child coverage",
         });
       }
     }
