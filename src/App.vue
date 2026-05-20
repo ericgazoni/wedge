@@ -535,9 +535,9 @@ onBeforeUnmount(() => {
         :last-sync-at="git.lastSyncAt"
         :can-sync="app.hasRepo"
         :syncing="git.syncing"
-        :doorstop-available="repo.doorstopAvailable"
         :doorstop-checking="repo.doorstopChecking"
         :doorstop-issue-count="repo.doorstopIssues.length"
+        :doorstop-has-run="repo.doorstopHasRun"
         @sync-now="runSyncNow"
         @show-log="doorstopLogOpen = true"
         @run-check="repo.runCheck()"
@@ -670,7 +670,6 @@ onBeforeUnmount(() => {
         <div class="text-lg font-semibold">Doorstop check results</div>
 
         <div v-if="repo.doorstopChecking" class="text-sm text-sky-300">Checking…</div>
-        <div v-else-if="!repo.doorstopAvailable" class="text-sm text-slate-400">Doorstop is not available.</div>
         <div v-else-if="repo.doorstopIssues.length === 0" class="text-sm text-emerald-400">No issues found.</div>
         <div v-else class="overflow-auto flex-1 space-y-1">
           <div

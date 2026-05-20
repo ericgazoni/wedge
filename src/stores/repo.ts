@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { computed, ref, toRaw } from "vue";
-import type { DoorstopCheckResult, DoorstopIssue, RepoModel, DoorstopItem, DoorstopDocument } from "../types/doorstop";
+import type { DoorstopIssue, RepoModel, DoorstopItem, DoorstopDocument } from "../types/doorstop";
 import {
   createDoorstopItem,
   deleteDoorstopItem,
@@ -38,8 +38,8 @@ export const useRepoStore = defineStore("repo", () => {
   const loading = ref(false);
   const error = ref<string>("");
   const doorstopIssues = ref<DoorstopIssue[]>([]);
-  const doorstopAvailable = ref<boolean | null>(null);
   const doorstopChecking = ref(false);
+  const doorstopHasRun = ref(false);
 
   const allItems = computed<DoorstopItem[]>(() => {
     if (!repo.value) return [];
@@ -206,19 +206,13 @@ export const useRepoStore = defineStore("repo", () => {
     return map;
   });
 
-  async function applyCheckResult(result: DoorstopCheckResult) {
-    doorstopAvailable.value = result.available;
-    doorstopIssues.value = result.issues;
-  }
-
   async function runCheck() {
     if (!repo.value) return;
     doorstopChecking.value = true;
     try {
-      const result = await runDoorstopCheck(repo.value.rootPath);
-      await applyCheckResult(result);
-    } catch {
-      // doorstop not available or failed — keep previous state
+      const result = await runDoorstopCheck(repo.value);
+      doorstopIssues.value = result.issues;
+      doorstopHasRun.value = true;
     } finally {
       doorstopChecking.value = false;
     }
@@ -240,21 +234,17 @@ export const useRepoStore = defineStore("repo", () => {
 
   async function reviewAndCheck(uid: string) {
     if (!repo.value) return;
-    const rootPath = repo.value.rootPath;
     doorstopChecking.value = true;
     try {
-      try {
-        await runDoorstopReview(rootPath, uid);
+      const hit = findItemWithDocument(uid);
+      if (hit) {
+        const allItemsMap = new Map(allItems.value.map((i) => [i.uid, i]));
+        await runDoorstopReview(hit.item, hit.document, allItemsMap);
         await reloadItem(uid);
-      } catch {
-        // review failed or doorstop not installed — continue to check anyway
       }
-      try {
-        const result = await runDoorstopCheck(rootPath);
-        await applyCheckResult(result);
-      } catch {
-        // check failed — leave issues unchanged
-      }
+      const result = await runDoorstopCheck(repo.value);
+      doorstopIssues.value = result.issues;
+      doorstopHasRun.value = true;
     } finally {
       doorstopChecking.value = false;
     }
@@ -277,8 +267,8 @@ export const useRepoStore = defineStore("repo", () => {
     duplicateItem,
     deleteItem,
     doorstopIssues,
-    doorstopAvailable,
     doorstopChecking,
+    doorstopHasRun,
     docsWithIssues,
     issuesByItemUid,
     runCheck,

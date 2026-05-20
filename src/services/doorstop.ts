@@ -1,10 +1,10 @@
 import { exists, readDir, readTextFile, remove, writeTextFile } from "@tauri-apps/plugin-fs";
-import { invoke } from "@tauri-apps/api/core";
 import { dump, load } from "js-yaml";
 import type {
   DocumentConfig,
   DoorstopCheckResult,
   DoorstopDocument,
+  DoorstopIssue,
   DoorstopItem,
   DoorstopReviewResult,
   RepoModel,
@@ -623,11 +623,143 @@ export async function readItemFromFile(
   return parseItemFile(filePath, fileName, docPrefix);
 }
 
-export async function runDoorstopCheck(rootPath: string): Promise<DoorstopCheckResult> {
-  return invoke<DoorstopCheckResult>("doorstop_check", { rootPath });
+async function computeStamp(...values: unknown[]): Promise<string> {
+  const combined = values.map((v) => (v == null ? "None" : String(v))).join("");
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(combined));
+  let bin = "";
+  for (const b of new Uint8Array(buf)) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_");
 }
 
-export async function runDoorstopReview(rootPath: string, uid: string): Promise<DoorstopReviewResult> {
-  return invoke<DoorstopReviewResult>("doorstop_review", { rootPath, uid });
+function linkUids(data: Record<string, unknown>): string[] {
+  const links = Array.isArray(data.links) ? data.links : [];
+  return links
+    .map((e) => (Object.keys(e as Record<string, unknown>)[0] ?? "").split(":")[0].trim())
+    .filter(Boolean);
+}
+
+export async function runDoorstopReview(
+  item: DoorstopItem,
+  document: DoorstopDocument,
+  allItems: Map<string, DoorstopItem>,
+): Promise<DoorstopReviewResult> {
+  try {
+    const uids = linkUids(item.data);
+    const reviewedStamp = await computeStamp(item.uid, item.data.text, item.data.ref, ...uids);
+
+    const links = Array.isArray(item.data.links) ? [...item.data.links] as Array<Record<string, string | null>> : [];
+    for (let i = 0; i < links.length; i++) {
+      const entry = links[i] as Record<string, string | null>;
+      const key = Object.keys(entry)[0];
+      if (!key) continue;
+      const targetUid = key.split(":")[0].trim();
+      const target = allItems.get(targetUid);
+      if (!target) continue;
+      const linkStamp = await computeStamp(target.uid, target.data.text, target.data.ref);
+      links[i] = { [key]: linkStamp };
+    }
+
+    const updatedData = { ...item.data, links, reviewed: reviewedStamp };
+    await writeDoorstopItem(item.filePath, updatedData, document.config.settings.itemformat);
+    return { available: true, success: true };
+  } catch {
+    return { available: true, success: false };
+  }
+}
+
+export async function runDoorstopCheck(repoModel: RepoModel): Promise<DoorstopCheckResult> {
+  const allItemsMap = new Map<string, DoorstopItem>();
+  for (const doc of repoModel.documents) {
+    for (const item of doc.items) {
+      allItemsMap.set(item.uid, item);
+    }
+  }
+
+  const issues: DoorstopIssue[] = [];
+
+  for (const doc of repoModel.documents) {
+    const prefix = doc.config.settings.prefix;
+
+    // Duplicate levels
+    const levelGroups = new Map<number, string[]>();
+    for (const item of doc.items) {
+      const level = Number(item.data.level);
+      if (!Number.isFinite(level)) continue;
+      const group = levelGroups.get(level) ?? [];
+      group.push(item.uid);
+      levelGroups.set(level, group);
+    }
+    for (const [level, uids] of levelGroups) {
+      if (uids.length < 2) continue;
+      issues.push({
+        level: "warning",
+        uid: prefix,
+        message: `duplicate level: ${level} (${uids.join(", ")})`,
+      });
+    }
+
+    for (const item of doc.items) {
+      const uids = linkUids(item.data);
+
+      // Invalid links
+      for (const targetUid of uids) {
+        if (!allItemsMap.has(targetUid)) {
+          issues.push({ level: "error", uid: targetUid, message: `no item with UID: ${targetUid}` });
+        }
+      }
+
+      // Unreviewed changes
+      const expectedReviewed = await computeStamp(item.uid, item.data.text, item.data.ref, ...uids);
+      if (expectedReviewed !== item.data.reviewed) {
+        issues.push({ level: "warning", uid: item.uid, message: "unreviewed changes" });
+      }
+
+      // Suspect links
+      const links = Array.isArray(item.data.links) ? item.data.links : [];
+      for (const entry of links) {
+        if (!entry || typeof entry !== "object") continue;
+        const obj = entry as Record<string, unknown>;
+        const key = Object.keys(obj)[0];
+        if (!key) continue;
+        const storedStamp = obj[key];
+        const targetUid = key.split(":")[0].trim();
+        const target = allItemsMap.get(targetUid);
+        if (!target) continue;
+        const expectedLinkStamp = await computeStamp(target.uid, target.data.text, target.data.ref);
+        if (storedStamp !== expectedLinkStamp) {
+          issues.push({ level: "warning", uid: item.uid, message: `suspect link: ${targetUid}` });
+        }
+      }
+    }
+  }
+
+  // No links from child document
+  for (const doc of repoModel.documents) {
+    const parentPrefix = doc.config.settings.parent;
+    if (!parentPrefix) continue;
+    const childPrefix = doc.config.settings.prefix;
+    const parentDoc = repoModel.documents.find((d) => d.config.settings.prefix === parentPrefix);
+    if (!parentDoc) continue;
+
+    const linkedParentUids = new Set<string>();
+    for (const childItem of doc.items) {
+      for (const uid of linkUids(childItem.data)) {
+        const target = allItemsMap.get(uid);
+        if (target?.docPrefix === parentPrefix) linkedParentUids.add(uid);
+      }
+    }
+
+    for (const parentItem of parentDoc.items) {
+      if (!linkedParentUids.has(parentItem.uid)) {
+        issues.push({
+          level: "warning",
+          uid: parentItem.uid,
+          message: `no links from child document: ${childPrefix}`,
+        });
+      }
+    }
+  }
+
+  return { available: true, issues };
 }
 

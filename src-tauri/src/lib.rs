@@ -4,7 +4,6 @@ use std::path::PathBuf;
 use tauri::menu::{Menu, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, Size, WindowEvent};
 
-mod doorstop_support;
 mod git_support;
 
 const WINDOW_STATE_FILE: &str = "window-state.json";
@@ -139,8 +138,6 @@ pub fn run() {
             git_support::git_startup_refresh,
             git_support::git_sync,
             git_support::git_resolve_conflict,
-            doorstop_support::doorstop_check,
-            doorstop_support::doorstop_review,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -10,9 +10,9 @@ const props = defineProps<{
   lastSyncAt: string;
   canSync: boolean;
   syncing: boolean;
-  doorstopAvailable: boolean | null;
   doorstopChecking: boolean;
   doorstopIssueCount: number;
+  doorstopHasRun: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -31,8 +31,7 @@ function syncToneClasses(tone: "amber" | "green" | "blue" | "red" | "neutral") {
 
 const checkStatusText = computed(() => {
   if (props.doorstopChecking) return "checking…";
-  if (props.doorstopAvailable === null) return "";
-  if (!props.doorstopAvailable) return "doorstop: not found";
+  if (!props.doorstopHasRun) return "";
   return props.doorstopIssueCount === 0
     ? "✓ no issues"
     : `⚠ ${props.doorstopIssueCount} issue${props.doorstopIssueCount > 1 ? "s" : ""}`;
@@ -40,8 +39,7 @@ const checkStatusText = computed(() => {
 
 const checkStatusClass = computed(() => {
   if (props.doorstopChecking) return "text-sky-300";
-  if (props.doorstopAvailable === null) return "";
-  if (!props.doorstopAvailable) return "text-slate-500";
+  if (!props.doorstopHasRun) return "";
   return props.doorstopIssueCount === 0 ? "text-emerald-400" : "text-amber-400";
 });
 </script>
@@ -56,7 +54,7 @@ const checkStatusClass = computed(() => {
     </div>
     <div class="flex items-center gap-3 shrink-0">
       <span class="text-slate-400">docs: {{ visibleDocCount }} | items: {{ visibleItemCount }}</span>
-      <template v-if="doorstopChecking || doorstopAvailable !== null">
+      <template v-if="doorstopChecking || doorstopHasRun">
         <span class="text-slate-600">|</span>
         <button :class="[checkStatusClass, 'hover:underline']" @click="emit('show-log')">{{ checkStatusText }}</button>
         <button class="btn h-7" :disabled="doorstopChecking" @click="emit('run-check')">Check</button>
