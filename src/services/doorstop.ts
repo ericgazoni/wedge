@@ -168,7 +168,8 @@ function parseMarkdownFrontmatter(raw: string): {
   }
 
   const fmText = lines.slice(1, endIdx).join("\n");
-  const body = lines.slice(endIdx + 1).join("\n");
+  // Strip the trailing \n added by ensureTrailingNewline so text round-trips without a spurious newline.
+  const body = lines.slice(endIdx + 1).join("\n").replace(/\n$/, "");
 
   let frontmatter: Record<string, unknown> = {};
   try {
