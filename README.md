@@ -95,6 +95,12 @@ Run the desktop app in Tauri dev mode:
 npm run tauri dev
 ```
 
+Or run the frontend in dev mode:
+
+```bash
+npm run dev
+```
+
 ### Building for production
 
 `tauri build` handles everything automatically via `beforeBuildCommand`:

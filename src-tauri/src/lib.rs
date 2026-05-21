@@ -137,7 +137,7 @@ pub fn run() {
             git_support::git_get_origin_host,
             git_support::git_startup_refresh,
             git_support::git_sync,
-            git_support::git_resolve_conflict,
+            git_support::git_resolve_conflict
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
