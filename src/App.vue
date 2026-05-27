@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useMagicKeys } from "@vueuse/core";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { exists } from "@tauri-apps/plugin-fs";
 import { useAppStore, type EditorFontSize } from "./stores/app";
@@ -36,6 +37,18 @@ const keys = useMagicKeys();
 
 const visibleDocCount = ref(0);
 const visibleItemCount = ref(0);
+
+// On macOS, NSOpenPanel crashes when the process was not launched via LaunchServices
+// (e.g. cargo tauri dev). The custom pick_folder command uses osascript instead.
+// On other platforms it returns an error so we fall back to plugin-dialog.
+async function pickFolder(title: string): Promise<string | null> {
+  try {
+    return await invoke<string | null>("pick_folder", { title });
+  } catch {
+    const path = await open({ directory: true, multiple: false, title });
+    return typeof path === "string" ? path : null;
+  }
+}
 
 let openingRepo = false;
 const joiningProject = ref(false);
@@ -267,8 +280,8 @@ async function openRepository() {
   if (openingRepo) return;
   openingRepo = true;
   try {
-    const path = await open({ directory: true, multiple: false, title: "Open Doorstop project" });
-    if (!path || Array.isArray(path)) return;
+    const path = await pickFolder("Open Doorstop project");
+    if (!path) return;
     await loadRepositoryAtPath(path);
   } finally {
     openingRepo = false;
@@ -306,8 +319,8 @@ function closeJoinDialog() {
 }
 
 async function pickJoinDestination() {
-  const path = await open({ directory: true, multiple: false, title: "Choose where to save the project" });
-  if (!path || Array.isArray(path)) return;
+  const path = await pickFolder("Choose where to save the project");
+  if (!path) return;
   joinDestination.value = path;
 }
 
