@@ -2,8 +2,11 @@ import { exists, readDir, readTextFile, remove, writeTextFile } from "@tauri-app
 import { dump, load } from "js-yaml";
 import type {
   DocumentConfig,
+  DoorstopCheckResult,
   DoorstopDocument,
+  DoorstopIssue,
   DoorstopItem,
+  DoorstopReviewResult,
   RepoModel,
 } from "../types/doorstop";
 
@@ -98,6 +101,7 @@ function defaultDocConfig(prefix: string): DocumentConfig {
       prefix,
       parent: null,
       sep: "",
+      child_links: false,
     },
     attributes: {},
   };
@@ -124,6 +128,7 @@ async function parseDocumentConfig(
         prefix: String(settings.prefix ?? fallbackPrefix),
         parent: settings.parent == null ? null : String(settings.parent),
         sep: String(settings.sep ?? ""),
+        child_links: settings.child_links === true,
       },
       attributes: parsed.attributes ?? {},
     };
@@ -163,7 +168,8 @@ function parseMarkdownFrontmatter(raw: string): {
   }
 
   const fmText = lines.slice(1, endIdx).join("\n");
-  const body = lines.slice(endIdx + 1).join("\n");
+  // Strip the trailing \n added by ensureTrailingNewline so text round-trips without a spurious newline.
+  const body = lines.slice(endIdx + 1).join("\n").replace(/\n$/, "");
 
   let frontmatter: Record<string, unknown> = {};
   try {
@@ -610,5 +616,234 @@ export async function createDoorstopItem(
 
 export async function deleteDoorstopItem(filePath: string): Promise<void> {
   await remove(filePath);
+}
+
+export async function readItemFromFile(
+  filePath: string,
+  docPrefix: string,
+): Promise<DoorstopItem | null> {
+  const fileName = filePath.split("/").pop() ?? "";
+  return parseItemFile(filePath, fileName, docPrefix);
+}
+
+async function computeStamp(...values: unknown[]): Promise<string> {
+  const combined = values.map((v) => (v == null ? "None" : String(v))).join("");
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(combined));
+  let bin = "";
+  for (const b of new Uint8Array(buf)) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+// Replicates Python's doorstop._convert_to_str used for extended_reviewed field serialization
+function convertToStr(value: unknown, result: string): string {
+  if (Array.isArray(value)) {
+    result += "\\L";
+    for (const v of value) result = convertToStr(v, result);
+    return result;
+  }
+  if (value !== null && typeof value === "object") {
+    result += "\\D";
+    for (const k of Object.keys(value as Record<string, unknown>).sort())
+      result = convertToStr((value as Record<string, unknown>)[k], result);
+    return result;
+  }
+  const typeName =
+    value === null ? "<class 'NoneType'>" :
+    typeof value === "boolean" ? "<class 'bool'>" :
+    typeof value === "string" ? "<class 'str'>" :
+    Number.isInteger(value as number) ? "<class 'int'>" : "<class 'float'>";
+  const strValue =
+    value === null ? "None" :
+    value === true ? "True" :
+    value === false ? "False" :
+    String(value);
+  return result + "\\T" + typeName + "\\V" + strValue.replace(/\\/g, "\\\\");
+}
+
+function getExtendedReviewedKeys(doc: DoorstopDocument): string[] {
+  const reviewed = doc.config.attributes?.reviewed;
+  if (!Array.isArray(reviewed)) return [];
+  return reviewed.filter((k): k is string => typeof k === "string");
+}
+
+// Returns link UIDs in sorted order, matching doorstop's sorted self.links
+function linkUids(data: Record<string, unknown>): string[] {
+  const links = Array.isArray(data.links) ? data.links : [];
+  return links
+    .map((e) => (Object.keys(e as Record<string, unknown>)[0] ?? "").split(":")[0].trim())
+    .filter(Boolean)
+    .sort();
+}
+
+// Matches Python's item.stamp(links=True): uid, text, ref, [references], sorted_link_uids, extended_reviewed
+async function computeReviewedStamp(item: DoorstopItem, extendedKeys: string[]): Promise<string> {
+  const values: unknown[] = [item.uid, item.data.text ?? "", item.data.ref ?? ""];
+  const refs = item.data.references;
+  if (refs != null && (Array.isArray(refs) ? (refs as unknown[]).length > 0 : true)) {
+    values.push(convertToStr(refs, ""));
+  }
+  values.push(...linkUids(item.data));
+  for (const key of extendedKeys) {
+    if (key in item.data) values.push(convertToStr(item.data[key], ""));
+  }
+  return computeStamp(...values);
+}
+
+// Matches Python's item.stamp(links=False): uid, text, ref, [references], extended_reviewed
+async function computeLinkTargetStamp(target: DoorstopItem, extendedKeys: string[]): Promise<string> {
+  const values: unknown[] = [target.uid, target.data.text ?? "", target.data.ref ?? ""];
+  const refs = target.data.references;
+  if (refs != null && (Array.isArray(refs) ? (refs as unknown[]).length > 0 : true)) {
+    values.push(convertToStr(refs, ""));
+  }
+  for (const key of extendedKeys) {
+    if (key in target.data) values.push(convertToStr(target.data[key], ""));
+  }
+  return computeStamp(...values);
+}
+
+export async function runDoorstopReview(
+  item: DoorstopItem,
+  document: DoorstopDocument,
+  allItems: Map<string, DoorstopItem>,
+  docsByPrefix: Map<string, DoorstopDocument>,
+): Promise<DoorstopReviewResult> {
+  try {
+    const extendedKeys = getExtendedReviewedKeys(document);
+    const reviewedStamp = await computeReviewedStamp(item, extendedKeys);
+
+    const links = Array.isArray(item.data.links) ? [...item.data.links] as Array<Record<string, string | null>> : [];
+    for (let i = 0; i < links.length; i++) {
+      const entry = links[i] as Record<string, string | null>;
+      const key = Object.keys(entry)[0];
+      if (!key) continue;
+      const targetUid = key.split(":")[0].trim();
+      const target = allItems.get(targetUid);
+      if (!target) continue;
+      const targetDoc = docsByPrefix.get(target.docPrefix);
+      const targetExtendedKeys = targetDoc ? getExtendedReviewedKeys(targetDoc) : [];
+      const linkStamp = await computeLinkTargetStamp(target, targetExtendedKeys);
+      links[i] = { [key]: linkStamp };
+    }
+
+    const updatedData = { ...item.data, links, reviewed: reviewedStamp };
+    await writeDoorstopItem(item.filePath, updatedData, document.config.settings.itemformat);
+    return { available: true, success: true };
+  } catch {
+    return { available: true, success: false };
+  }
+}
+
+export async function runDoorstopCheck(repoModel: RepoModel): Promise<DoorstopCheckResult> {
+  const allItemsMap = new Map<string, DoorstopItem>();
+  const docsByPrefix = new Map<string, DoorstopDocument>();
+  for (const doc of repoModel.documents) {
+    docsByPrefix.set(doc.config.settings.prefix, doc);
+    for (const item of doc.items) {
+      allItemsMap.set(item.uid, item);
+    }
+  }
+
+  const issues: DoorstopIssue[] = [];
+
+  for (const doc of repoModel.documents) {
+    const prefix = doc.config.settings.prefix;
+    const extendedKeys = getExtendedReviewedKeys(doc);
+
+    // Duplicate levels — checked for all items regardless of active status
+    const levelGroups = new Map<number, string[]>();
+    for (const item of doc.items) {
+      const level = Number(item.data.level);
+      if (!Number.isFinite(level)) continue;
+      const group = levelGroups.get(level) ?? [];
+      group.push(item.uid);
+      levelGroups.set(level, group);
+    }
+    for (const [level, uids] of levelGroups) {
+      if (uids.length < 2) continue;
+      issues.push({
+        level: "warning",
+        uid: prefix,
+        message: `duplicate level: ${level} (${uids.join(", ")})`,
+      });
+    }
+
+    for (const item of doc.items) {
+      // Doorstop skips inactive items for review/link checks
+      if (item.data.active === false) continue;
+
+      const uids = linkUids(item.data);
+
+      // Invalid links — emit on the source item so it shows up in the tree
+      for (const targetUid of uids) {
+        if (!allItemsMap.has(targetUid)) {
+          issues.push({ level: "error", uid: item.uid, message: `no item with UID: ${targetUid}` });
+        }
+      }
+
+      // Unreviewed changes
+      const expectedReviewed = await computeReviewedStamp(item, extendedKeys);
+      if (expectedReviewed !== item.data.reviewed) {
+        issues.push({ level: "warning", uid: item.uid, message: "unreviewed changes" });
+      }
+
+      // Suspect links
+      const links = Array.isArray(item.data.links) ? item.data.links : [];
+      for (const entry of links) {
+        if (!entry || typeof entry !== "object") continue;
+        const obj = entry as Record<string, unknown>;
+        const key = Object.keys(obj)[0];
+        if (!key) continue;
+        const storedStamp = obj[key];
+        const targetUid = key.split(":")[0].trim();
+        const target = allItemsMap.get(targetUid);
+        if (!target) continue;
+        const targetDoc = docsByPrefix.get(target.docPrefix);
+        const targetExtendedKeys = targetDoc ? getExtendedReviewedKeys(targetDoc) : [];
+        const expectedLinkStamp = await computeLinkTargetStamp(target, targetExtendedKeys);
+        if (storedStamp !== expectedLinkStamp) {
+          issues.push({ level: "warning", uid: item.uid, message: `suspect link: ${targetUid}` });
+        }
+      }
+    }
+  }
+
+  // Child links coverage check: only runs when child_links: true in the document config.
+  // A parent item is considered covered if at least one active child-document item links to it.
+  // Only active, normative parent items require coverage (matching doorstop's behavior).
+  for (const doc of repoModel.documents) {
+    if (!doc.config.settings.child_links) continue;
+    const prefix = doc.config.settings.prefix;
+
+    const childDocs = repoModel.documents.filter(
+      (d) => d.config.settings.parent === prefix,
+    );
+    if (childDocs.length === 0) continue;
+
+    const coveredUids = new Set<string>();
+    for (const childDoc of childDocs) {
+      for (const childItem of childDoc.items) {
+        if (childItem.data.active === false) continue;
+        for (const uid of linkUids(childItem.data)) {
+          const target = allItemsMap.get(uid);
+          if (target?.docPrefix === prefix) coveredUids.add(uid);
+        }
+      }
+    }
+
+    for (const item of doc.items) {
+      if (item.data.active === false) continue;
+      if (item.data.normative === false) continue;
+      if (!coveredUids.has(item.uid)) {
+        issues.push({
+          level: "warning",
+          uid: item.uid,
+          message: "no child coverage",
+        });
+      }
+    }
+  }
+
+  return { available: true, issues };
 }
 

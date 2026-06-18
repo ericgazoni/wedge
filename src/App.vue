@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useMagicKeys } from "@vueuse/core";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { exists } from "@tauri-apps/plugin-fs";
 import { useAppStore, type EditorFontSize } from "./stores/app";
@@ -36,6 +37,39 @@ const keys = useMagicKeys();
 
 const visibleDocCount = ref(0);
 const visibleItemCount = ref(0);
+const doorstopLogOpen = ref(false);
+const doorstopFilterText = ref("");
+const doorstopFilterErrors = ref(true);
+const doorstopFilterWarnings = ref(true);
+
+function openDoorstopLog() {
+  doorstopFilterText.value = "";
+  doorstopFilterErrors.value = true;
+  doorstopFilterWarnings.value = true;
+  doorstopLogOpen.value = true;
+}
+
+const doorstopFilteredIssues = computed(() => {
+  const text = doorstopFilterText.value.trim().toLowerCase();
+  return repo.doorstopIssues.filter((issue) => {
+    if (issue.level === "error" && !doorstopFilterErrors.value) return false;
+    if (issue.level === "warning" && !doorstopFilterWarnings.value) return false;
+    if (!text) return true;
+    return issue.uid.toLowerCase().includes(text) || issue.message.toLowerCase().includes(text);
+  });
+});
+
+// On macOS, NSOpenPanel crashes when the process was not launched via LaunchServices
+// (e.g. cargo tauri dev). The custom pick_folder command uses osascript instead.
+// On other platforms it returns an error so we fall back to plugin-dialog.
+async function pickFolder(title: string): Promise<string | null> {
+  try {
+    return await invoke<string | null>("pick_folder", { title });
+  } catch {
+    const path = await open({ directory: true, multiple: false, title });
+    return typeof path === "string" ? path : null;
+  }
+}
 
 let openingRepo = false;
 const joiningProject = ref(false);
@@ -244,6 +278,7 @@ async function loadRepositoryAtPath(path: string): Promise<boolean> {
   if (!git.error) {
     await reloadRepositoryModel();
   }
+  void repo.runCheck();
   return true;
 }
 
@@ -267,8 +302,8 @@ async function openRepository() {
   if (openingRepo) return;
   openingRepo = true;
   try {
-    const path = await open({ directory: true, multiple: false, title: "Open Doorstop project" });
-    if (!path || Array.isArray(path)) return;
+    const path = await pickFolder("Open Doorstop project");
+    if (!path) return;
     await loadRepositoryAtPath(path);
   } finally {
     openingRepo = false;
@@ -306,8 +341,8 @@ function closeJoinDialog() {
 }
 
 async function pickJoinDestination() {
-  const path = await open({ directory: true, multiple: false, title: "Choose where to save the project" });
-  if (!path || Array.isArray(path)) return;
+  const path = await pickFolder("Choose where to save the project");
+  if (!path) return;
   joinDestination.value = path;
 }
 
@@ -533,7 +568,12 @@ onBeforeUnmount(() => {
         :last-sync-at="git.lastSyncAt"
         :can-sync="app.hasRepo"
         :syncing="git.syncing"
+        :doorstop-checking="repo.doorstopChecking"
+        :doorstop-issue-count="repo.doorstopIssues.length"
+        :doorstop-has-run="repo.doorstopHasRun"
         @sync-now="runSyncNow"
+        @show-log="openDoorstopLog"
+        @run-check="repo.runCheck()"
       />
     </div>
 
@@ -654,6 +694,55 @@ onBeforeUnmount(() => {
 
         <div class="flex justify-end">
           <button class="btn" @click="closeEditorSettingsDialog">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="doorstopLogOpen" class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4" @pointerdown="doorstopLogOpen = false">
+      <div class="panel w-full max-w-2xl p-4 space-y-3 max-h-[80vh] flex flex-col" @pointerdown.stop>
+        <div class="text-lg font-semibold">Doorstop check results</div>
+
+        <div v-if="!repo.doorstopChecking && repo.doorstopIssues.length > 0" class="flex gap-2 items-center flex-wrap">
+          <input
+            v-model="doorstopFilterText"
+            type="text"
+            placeholder="Search UID or message…"
+            class="input flex-1 min-w-0 text-sm"
+          />
+          <label class="flex items-center gap-1 text-xs cursor-pointer select-none">
+            <input type="checkbox" v-model="doorstopFilterErrors" class="accent-red-400" />
+            <span class="text-red-400 font-semibold uppercase tracking-wide">errors</span>
+          </label>
+          <label class="flex items-center gap-1 text-xs cursor-pointer select-none">
+            <input type="checkbox" v-model="doorstopFilterWarnings" class="accent-amber-400" />
+            <span class="text-amber-400 font-semibold uppercase tracking-wide">warnings</span>
+          </label>
+        </div>
+
+        <div v-if="repo.doorstopChecking" class="text-sm text-sky-300">Checking…</div>
+        <div v-else-if="repo.doorstopIssues.length === 0" class="text-sm text-emerald-400">No issues found.</div>
+        <div v-else-if="doorstopFilteredIssues.length === 0" class="text-sm text-slate-400">No issues match the current filter.</div>
+        <div v-else class="overflow-auto flex-1 space-y-1">
+          <div
+            v-for="(issue, idx) in doorstopFilteredIssues"
+            :key="idx"
+            class="flex gap-2 text-xs font-mono items-start"
+          >
+            <span
+              class="shrink-0 uppercase tracking-wide font-semibold"
+              :class="issue.level === 'error' ? 'text-red-400' : 'text-amber-400'"
+            >{{ issue.level }}</span>
+            <span class="text-slate-300 shrink-0">{{ issue.uid }}</span>
+            <span class="text-slate-400">{{ issue.message }}</span>
+          </div>
+        </div>
+
+        <div class="flex justify-between items-center">
+          <span v-if="!repo.doorstopChecking && repo.doorstopIssues.length > 0" class="text-xs text-slate-500">
+            {{ doorstopFilteredIssues.length }} / {{ repo.doorstopIssues.length }} issue{{ repo.doorstopIssues.length !== 1 ? 's' : '' }}
+          </span>
+          <span v-else />
+          <button class="btn" @click="doorstopLogOpen = false">Close</button>
         </div>
       </div>
     </div>

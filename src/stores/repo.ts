@@ -1,9 +1,12 @@
 import { defineStore } from "pinia";
 import { computed, ref, toRaw } from "vue";
-import type { RepoModel, DoorstopItem, DoorstopDocument } from "../types/doorstop";
+import type { DoorstopIssue, RepoModel, DoorstopItem, DoorstopDocument } from "../types/doorstop";
 import {
   createDoorstopItem,
   deleteDoorstopItem,
+  readItemFromFile,
+  runDoorstopCheck,
+  runDoorstopReview,
   scanDoorstopRepository,
   writeDoorstopItem,
 } from "../services/doorstop";
@@ -34,6 +37,9 @@ export const useRepoStore = defineStore("repo", () => {
   const repo = ref<RepoModel | null>(null);
   const loading = ref(false);
   const error = ref<string>("");
+  const doorstopIssues = ref<DoorstopIssue[]>([]);
+  const doorstopChecking = ref(false);
+  const doorstopHasRun = ref(false);
 
   const allItems = computed<DoorstopItem[]>(() => {
     if (!repo.value) return [];
@@ -50,6 +56,18 @@ export const useRepoStore = defineStore("repo", () => {
       if (item) return item;
     }
     return null;
+  }
+
+  // Doorstop may report UIDs with a different separator than the filename uses
+  // (e.g. issue uid "SRD-001" vs filename "SRD_001.md"). Try swapping the
+  // separator character immediately before the trailing digit group.
+  function findItemByIssueUid(issueUid: string): DoorstopItem | null {
+    const exact = findItem(issueUid);
+    if (exact) return exact;
+    const alt = issueUid.replace(/([_-])(\d+)$/, (_, sep, num) =>
+      `${sep === "-" ? "_" : "-"}${num}`,
+    );
+    return alt !== issueUid ? findItem(alt) : null;
   }
 
   async function load(path: string) {
@@ -158,6 +176,83 @@ export const useRepoStore = defineStore("repo", () => {
     return true;
   }
 
+  const docsWithIssues = computed<Set<string>>(() => {
+    const result = new Set<string>();
+    for (const issue of doorstopIssues.value) {
+      const item = findItemByIssueUid(issue.uid);
+      if (item) {
+        result.add(item.docPrefix);
+        continue;
+      }
+      for (const doc of repo.value?.documents ?? []) {
+        if (doc.config.settings.prefix === issue.uid) {
+          result.add(issue.uid);
+          break;
+        }
+      }
+    }
+    return result;
+  });
+
+  const issuesByItemUid = computed<Map<string, DoorstopIssue[]>>(() => {
+    const map = new Map<string, DoorstopIssue[]>();
+    for (const issue of doorstopIssues.value) {
+      const item = findItemByIssueUid(issue.uid);
+      if (!item) continue;
+      const existing = map.get(item.uid) ?? [];
+      existing.push(issue);
+      map.set(item.uid, existing);
+    }
+    return map;
+  });
+
+  async function runCheck() {
+    if (!repo.value) return;
+    doorstopChecking.value = true;
+    try {
+      const result = await runDoorstopCheck(repo.value);
+      doorstopIssues.value = result.issues;
+      doorstopHasRun.value = true;
+    } finally {
+      doorstopChecking.value = false;
+    }
+  }
+
+  async function reloadItem(uid: string): Promise<boolean> {
+    const hit = findItemWithDocument(uid);
+    if (!hit) return false;
+    const fresh = await readItemFromFile(
+      hit.item.filePath,
+      hit.document.config.settings.prefix,
+    );
+    if (!fresh) return false;
+    // Replace the array slot so Vue detects the new reference and the editor
+    // watch re-syncs the draft with the freshly-reviewed data.
+    hit.document.items.splice(hit.index, 1, fresh);
+    return true;
+  }
+
+  async function reviewAndCheck(uid: string) {
+    if (!repo.value) return;
+    doorstopChecking.value = true;
+    try {
+      const hit = findItemWithDocument(uid);
+      if (hit) {
+        const allItemsMap = new Map(allItems.value.map((i) => [i.uid, i]));
+        const docsByPrefix = new Map(
+          (repo.value?.documents ?? []).map((d) => [d.config.settings.prefix, d]),
+        );
+        await runDoorstopReview(hit.item, hit.document, allItemsMap, docsByPrefix);
+        await reloadItem(uid);
+      }
+      const result = await runDoorstopCheck(repo.value);
+      doorstopIssues.value = result.issues;
+      doorstopHasRun.value = true;
+    } finally {
+      doorstopChecking.value = false;
+    }
+  }
+
   return {
     repo,
     loading,
@@ -174,5 +269,12 @@ export const useRepoStore = defineStore("repo", () => {
     createItem,
     duplicateItem,
     deleteItem,
+    doorstopIssues,
+    doorstopChecking,
+    doorstopHasRun,
+    docsWithIssues,
+    issuesByItemUid,
+    runCheck,
+    reviewAndCheck,
   };
 });
