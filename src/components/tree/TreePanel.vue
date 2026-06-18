@@ -47,7 +47,9 @@ function loadPersistedTreeWidth(): number {
   try {
     const raw = window.localStorage.getItem(TREE_WIDTH_STORAGE_KEY);
     const parsed = Number(raw);
-    return Number.isFinite(parsed) ? clampTreeWidth(parsed) : 320;
+    if (!Number.isFinite(parsed)) return 320;
+    const windowMax = Math.max(MIN_TREE_WIDTH, window.innerWidth - 200);
+    return Math.max(MIN_TREE_WIDTH, Math.min(Math.min(MAX_TREE_WIDTH, windowMax), parsed));
   } catch {
     return 320;
   }
@@ -192,7 +194,9 @@ function startTreeResize(event: MouseEvent) {
   document.body.style.cursor = "col-resize";
 
   const onMouseMove = (moveEvent: MouseEvent) => {
-    treeWidth.value = clampTreeWidth(startWidth + (moveEvent.clientX - startX));
+    const windowMax = Math.max(MIN_TREE_WIDTH, window.innerWidth - 200);
+    const effectiveMax = Math.min(MAX_TREE_WIDTH, windowMax);
+    treeWidth.value = Math.max(MIN_TREE_WIDTH, Math.min(effectiveMax, startWidth + (moveEvent.clientX - startX)));
   };
 
   const onMouseUp = () => {
@@ -417,10 +421,10 @@ watch(() => keys["/"]?.value, (p, prev) => {
 </script>
 
 <template>
-  <aside class="bg-panel min-h-0 flex shrink-0" :style="{ width: `${treeWidth}px` }">
+  <aside class="bg-panel min-h-0 flex shrink-0 overflow-hidden" :style="{ width: `${treeWidth}px` }">
     <div class="min-h-0 flex flex-col flex-1">
       <div class="px-3 py-2 border-b border-slate-800 flex items-center gap-2">
-        <input id="tree-filter" v-model="app.treeFilter" class="input w-full h-8" placeholder="Filter tree (/)" />
+        <input id="tree-filter" v-model="app.treeFilter" class="input flex-1 min-w-0 h-8" placeholder="Filter tree (/)" />
         <span class="kbd">/</span>
         <label class="inline-flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap select-none">
           <input v-model="showActiveOnly" type="checkbox" class="h-3.5 w-3.5" />
