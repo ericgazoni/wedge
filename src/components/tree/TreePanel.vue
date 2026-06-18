@@ -421,8 +421,8 @@ watch(() => keys["/"]?.value, (p, prev) => {
 </script>
 
 <template>
-  <aside class="bg-panel min-h-0 flex shrink-0 overflow-hidden" :style="{ width: `${treeWidth}px` }">
-    <div class="min-h-0 flex flex-col flex-1">
+  <aside class="bg-panel min-h-0 flex shrink-0" :style="{ width: `${treeWidth}px` }">
+    <div class="min-h-0 flex flex-col flex-1 overflow-hidden">
       <div class="px-3 py-2 border-b border-slate-800 flex items-center gap-2">
         <input id="tree-filter" v-model="app.treeFilter" class="input flex-1 min-w-0 h-8" placeholder="Filter tree (/)" />
         <span class="kbd">/</span>
