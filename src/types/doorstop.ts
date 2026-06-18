@@ -4,6 +4,7 @@ export type DocSettings = {
   prefix: string;
   parent: string | null;
   sep: string;
+  child_links: boolean;
 };
 
 export type DocumentConfig = {
@@ -33,6 +34,24 @@ export type DoorstopDocument = {
 export type RepoModel = {
   rootPath: string;
   documents: DoorstopDocument[];
+};
+
+export type DoorstopIssueLevel = "error" | "warning";
+
+export type DoorstopIssue = {
+  level: DoorstopIssueLevel;
+  uid: string;
+  message: string;
+};
+
+export type DoorstopCheckResult = {
+  available: boolean;
+  issues: DoorstopIssue[];
+};
+
+export type DoorstopReviewResult = {
+  available: boolean;
+  success: boolean;
 };
 
 export const STANDARD_FIELDS = [

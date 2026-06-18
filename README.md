@@ -33,12 +33,18 @@ The feature set below reflects the current implementation:
 - Tree and item management
   - Global search content across item fields.
   - Filtering "active only" items.
+  - Filtering documents that have Doorstop integrity issues.
+  - Warning indicator on document cards when issues are detected.
   - Context actions to create, duplicate, activate/deactivate, and delete items.
   - Resizable tree panel and keyboard navigation.
 - Batch creation
   - Create multiple child items quickly from one view.
   - Set per-row metadata (`text`, `ref`, `level`, ...) before saving.
   - Link newly created items to a selected source item.
+- Doorstop integrity checks
+  - Automatically runs review and integrity check after each save (implemented natively — no external Doorstop installation needed).
+  - Issues reported are reflected in real time in the tree panel.
+  - Check status (pass / N issues) shown in the status bar.
 - Collaboration via Git and conflict handling
   - "Sync now" workflow with status indicator and periodic background refresh.
   - Startup refresh and branch/status visibility.
@@ -64,20 +70,24 @@ Using Wedge with an existing repository? See [`manual/git-project-setup.md`](man
 - [Tauri](https://tauri.app/) for the desktop shell and native integration.
 - [Vue 3](https://vuejs.org/) + [TypeScript](https://www.typescriptlang.org/) for the frontend.
 - [Vite](https://vitejs.dev/) for frontend development and builds.
+- [Rust](https://www.rust-lang.org/) for native Tauri commands (Git integration).
 
 ## Development
 
-Install dependencies:
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) and npm
+- [Rust toolchain](https://rustup.rs/)
+
+### Setup
+
+Install Node dependencies:
 
 ```bash
 npm install
 ```
 
-Run the frontend in dev mode:
-
-```bash
-npm run dev
-```
+### Running
 
 Run the desktop app in Tauri dev mode:
 
@@ -85,8 +95,20 @@ Run the desktop app in Tauri dev mode:
 npm run tauri dev
 ```
 
-Build frontend assets:
+Or run the frontend in dev mode:
 
 ```bash
-npm run build
+npm run dev
 ```
+
+### Building for production
+
+`tauri build` handles everything automatically via `beforeBuildCommand`:
+
+```bash
+npm run tauri build
+```
+
+This will:
+1. Build the frontend assets.
+2. Compile and bundle the Tauri app.

@@ -24,6 +24,30 @@ const customAttributeEntries = computed(() => {
   return Object.entries(editorDraft.value).filter(([k]) => !standard.has(k));
 });
 
+const currentItemIssues = computed(() => {
+  const uid = selectedItem.value?.uid;
+  if (!uid) return [];
+  return repo.issuesByItemUid.get(uid) ?? [];
+});
+
+const issueFields = computed<Set<string>>(() => {
+  const fields = new Set<string>();
+  for (const issue of currentItemIssues.value) {
+    const lower = issue.message.toLowerCase();
+    for (const field of STANDARD_FIELDS) {
+      if (lower.includes(field)) {
+        fields.add(field);
+        break;
+      }
+    }
+  }
+  return fields;
+});
+
+function fieldIssueClass(field: string): string {
+  return issueFields.value.has(field) ? "ring-1 ring-amber-400" : "";
+}
+
 function linkUidFromEntry(entry: unknown): string {
   if (!entry || typeof entry !== "object") return "";
   const key = Object.keys(entry as Record<string, unknown>)[0] ?? "";
@@ -211,6 +235,11 @@ function closeLinkMenuSoon() {
   }, 120);
 }
 
+async function runReview() {
+  if (!selectedItem.value || repo.doorstopChecking) return;
+  await repo.reviewAndCheck(selectedItem.value.uid);
+}
+
 async function saveCurrentItem(mode: "manual" | "auto" = "manual") {
   if (!selectedItem.value || savingItem.value) return;
 
@@ -224,6 +253,7 @@ async function saveCurrentItem(mode: "manual" | "auto" = "manual") {
     await repo.saveItem(selectedItem.value.uid, editorDraft.value);
     lastSavedSnapshot.value = snapshot;
     editorMessage.value = mode === "auto" ? "Auto-saved." : "Saved.";
+    void repo.reviewAndCheck(selectedItem.value.uid);
   } catch (error) {
     editorMessage.value = error instanceof Error ? error.message : "Failed to save item.";
   } finally {
@@ -269,24 +299,31 @@ onBeforeUnmount(() => {
 <template>
   <div v-if="!selectedItem" class="text-sm text-slate-500">Select an item from the tree.</div>
   <div v-else class="space-y-3 w-full">
-    <div class="h-6 flex items-center text-xs" aria-live="polite">
-      <span v-if="savingItem" class="text-slate-400">Saving...</span>
-      <span v-else-if="editorMessage" class="text-slate-300 truncate">{{ editorMessage }}</span>
+    <div class="h-6 flex items-center justify-between text-xs" aria-live="polite">
+      <div>
+        <span v-if="savingItem" class="text-slate-400">Saving...</span>
+        <span v-else-if="editorMessage" class="text-slate-300 truncate">{{ editorMessage }}</span>
+      </div>
+      <button
+        class="btn"
+        :disabled="repo.doorstopChecking"
+        @click="runReview"
+      >{{ repo.doorstopChecking ? "Reviewing…" : "Review" }}</button>
     </div>
 
     <div class="grid grid-cols-[120px_1fr] gap-2 items-center"><label class="text-sm text-slate-400">UID</label><input class="input h-9" :value="selectedItem.uid" readonly /></div>
-    <div class="grid grid-cols-[120px_1fr] gap-2 items-center"><label class="text-sm text-slate-400">Header</label><input class="input h-9" :value="asString(editorDraft.header)" @input="editorDraft.header = ($event.target as HTMLInputElement).value" /></div>
-    <div class="grid grid-cols-[120px_1fr] gap-2 items-start"><label class="text-sm text-slate-400 mt-2">Text</label><textarea class="input min-h-[460px] h-[55vh]" :value="asString(editorDraft.text)" @input="editorDraft.text = ($event.target as HTMLTextAreaElement).value" /></div>
-    <div class="grid grid-cols-[120px_1fr] gap-2 items-center"><label class="text-sm text-slate-400">Level</label><input class="input h-9" type="number" step="0.1" :value="asNumber(editorDraft.level, 1)" @input="editorDraft.level = asNumber(($event.target as HTMLInputElement).value, 1)" /></div>
+    <div class="grid grid-cols-[120px_1fr] gap-2 items-center"><label class="text-sm text-slate-400">Header</label><input :class="['input h-9', fieldIssueClass('header')]" :value="asString(editorDraft.header)" @input="editorDraft.header = ($event.target as HTMLInputElement).value" /></div>
+    <div class="grid grid-cols-[120px_1fr] gap-2 items-start"><label class="text-sm text-slate-400 mt-2">Text</label><textarea :class="['input min-h-[460px] h-[55vh]', fieldIssueClass('text')]" :value="asString(editorDraft.text)" @input="editorDraft.text = ($event.target as HTMLTextAreaElement).value" /></div>
+    <div class="grid grid-cols-[120px_1fr] gap-2 items-center"><label class="text-sm text-slate-400">Level</label><input :class="['input h-9', fieldIssueClass('level')]" type="number" step="0.1" :value="asNumber(editorDraft.level, 1)" @input="editorDraft.level = asNumber(($event.target as HTMLInputElement).value, 1)" /></div>
 
     <details class="border border-slate-800 rounded-md p-2 bg-panel2">
       <summary class="cursor-pointer text-sm text-slate-300 select-none">More fields</summary>
       <div class="mt-3 space-y-3">
-        <div class="grid grid-cols-[120px_1fr] gap-2 items-center"><label class="text-sm text-slate-400">Ref</label><input class="input h-9" :value="asString(editorDraft.ref)" @input="editorDraft.ref = ($event.target as HTMLInputElement).value" /></div>
+        <div class="grid grid-cols-[120px_1fr] gap-2 items-center"><label class="text-sm text-slate-400">Ref</label><input :class="['input h-9', fieldIssueClass('ref')]" :value="asString(editorDraft.ref)" @input="editorDraft.ref = ($event.target as HTMLInputElement).value" /></div>
 
         <div class="grid grid-cols-[120px_1fr] gap-2 items-start">
           <label class="text-sm text-slate-400 mt-2">Links</label>
-          <div class="space-y-2">
+          <div :class="['space-y-2 rounded', fieldIssueClass('links') ? 'ring-1 ring-amber-400 p-1' : '']">
             <div class="relative">
               <input
                 class="input h-9 w-full"
