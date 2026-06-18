@@ -81,6 +81,33 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+// On macOS 26+, NSOpenPanel fails when the process was not launched via LaunchServices
+// (cargo tauri dev spawns the binary directly). Delegate to osascript instead, which
+// runs as its own registered system process and can always show the folder picker.
+#[tauri::command]
+async fn pick_folder(title: String) -> Result<Option<String>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let safe_title = title.replace('"', "'");
+        let script = format!("POSIX path of (choose folder with prompt \"{}\")", safe_title);
+        let output = std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Ok(None); // user cancelled
+        }
+        let raw = String::from_utf8_lossy(&output.stdout);
+        let path = raw.trim_end_matches('\n').trim_end_matches('/').to_string();
+        Ok(if path.is_empty() { None } else { Some(path) })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = title;
+        Err("not-macos".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -132,6 +159,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            pick_folder,
             git_support::git_clone_project,
             git_support::git_get_status,
             git_support::git_get_origin_host,
